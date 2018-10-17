@@ -53,3 +53,4 @@ The code files are organized as follows:
 - **`training.py`** - Everything related to model training
 - **`plot.py`** - Everything related to plotting
 - **`sift.py`** - Everything related to SIFT descriptors and facial landmarks extraction
+- **`const.py`** - Constants used in the other files.
