@@ -22,7 +22,7 @@ Here we add a simple LSTM network on top of a pretrained [VGG-16](https://arxiv.
 #### VGG-SIFT-LSTM
 This model is similar to VGG-LSTM, except that we also give as input of our LSTM network the SIFT descriptors of the 51 facial landmarks of each of the 5 frames. The facial landmarks are first detected using dlib and OpenCV, then the SIFT descriptors of each of the 51 landmarks are extracted. Note that we do not use the facial landmarks that lie on the border the face, as they are irrelevant for FER. Thus we use 51 landmarks instead of the 68 that dlib detects. These can be seen below.
 
-![Facial Landmarks](img/facial_landmarks.jpg "Facial Landmarks")
+![Facial Landmarks](img/facial_landmarks.png "Facial Landmarks")
 
 #### DenseNet-LSTM
 This model is the same as VGG-LSTM, except that we use [DenseNet-121](https://arxiv.org/abs/1608.06993) instead of VGG-16. We use the output after the 7x7 glabal average pooling layer, which has dimensionality 1024.
