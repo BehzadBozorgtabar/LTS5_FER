@@ -4,7 +4,7 @@
 ## Data
 The [MUG Facial Expression Database](https://mug.ee.auth.gr/fed/) consists of image sequences of 52 subjects performing facial expressions. This dataset contains 7 basic emotions (anger, disgust, fear, happiness, sadness, surprise, neutral), and each image sequences start and end at the neutral state.
 
-As an input for our all models, we selected only 5 frames for each image sequence. One such sample is shown here for reference purposes.
+As an input for our all models, we selected only 5 frames for each image sequence. Each frame was also downsized to 224 x 224. One such sample is shown here for reference purposes.
 
 ![MUG sample](img/mug_sample.jpg "MUG Sample")
 
@@ -24,29 +24,32 @@ This model is the same as VGG-LSTM, except that instead of VGG-16 we use a [Dens
 This model is the same as VGG-SIFT-LSTM, except that we use DenseNet-121 instead of VGG-16.
 
 ### Results
+To evaluate the performance of the different models, the average validation accuracy over a 5-fold cross-validation was computed. We also show the inference time for each model, i.e. the time the model takes to output a prediction when it takes raw images as input.
+
 | Model                  | Accuracy | Inference time (ms) |
 |------------------------|:--------:|:-------------------:|
-| **VGG-LSTM**           |   86.4%  |          ?          |
-| **VGG-SIFT-LSTM**      | **95.5%**|          ?          |
-| **DenseNet-LSTM**      |   84.5%  |          ?          |
-| **DenseNet-SIFT-LSTM** |   94.2%  |          ?          |
+| **VGG-LSTM**           |   86.4%  |         155         |
+| **VGG-SIFT-LSTM**      | **95.5%**|         196         |
+| **DenseNet-LSTM**      |   84.5%  |         267         |
+| **DenseNet-SIFT-LSTM** |   94.2%  |         279         |
 
 We can observe that:
 1. The addition of the SIFT descriptors results in a significant improvement, both in the VGG and the DenseNet-based models.
 2. VGG performs better than DenseNet, which is expected since VGG-Face weights are much more suited to our task than the more general ImageNet weights we used for DenseNet.
+3. VGG-based models are faster compared to the DenseNet-based ones.
 
 ## How to use
 
 The code files are organized as follows:
 
 **Main training files:**
-- **vgg_lstm.py** - Run this to train the VGG-LSTM model
-- **vgg_sift_lstm.py** - Run this to train the VGG-SIFT-LSTM model
-- **densenet_lstm.py** - Run this to train the DenseNet-LSTM model
-- **densenet_sift_lstm.py** - Run this to train the DenseNet-SIFT-LSTM model
+- **`vgg_lstm.py`** - Run this to train the VGG-LSTM model
+- **`vgg_sift_lstm.py`** - Run this to train the VGG-SIFT-LSTM model
+- **`densenet_lstm.py`** - Run this to train the DenseNet-LSTM model
+- **`densenet_sift_lstm.py`** - Run this to train the DenseNet-SIFT-LSTM model
 
 **Auxiliary files:**
-- **extraction.py** - Everything related to data extraction
-- **training.py** - Everything related to model training
-- **plot.py** - Everything related to plotting
-- **sift.py** - Everything related to SIFT descriptors and facial landmarks extraction
+- **`extraction.py`** - Everything related to data extraction
+- **`training.py`** - Everything related to model training
+- **`plot.py`** - Everything related to plotting
+- **`sift.py`** - Everything related to SIFT descriptors and facial landmarks extraction
