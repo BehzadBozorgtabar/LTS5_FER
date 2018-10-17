@@ -1,0 +1,6 @@
+*.DS_Store
+mug-fer/models/*
+mug-fer/data/*
+mug-fer/MUG-data/*
+mug-fer/test.py
+mug-fer/__pycache__/*
