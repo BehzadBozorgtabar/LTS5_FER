@@ -4,3 +4,9 @@ mug-fer/data/*
 mug-fer/MUG-data/*
 mug-fer/test.py
 mug-fer/__pycache__/*
+
+raf-fer/models/*
+raf-fer/data/*
+raf-fer/RAF-data/*
+raf-fer/test.py
+raf-fer/__pycache__/*
