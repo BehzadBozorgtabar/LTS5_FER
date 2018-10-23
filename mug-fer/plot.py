@@ -64,6 +64,9 @@ def plot_confusion_matrix(cm,
 	
 	accuracy = np.trace(cm) / float(np.sum(cm))
 
+	if normalize:
+		cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+
 	plt.figure(figsize=(8, 6))
 	plt.imshow(cm, interpolation='nearest', cmap=plt.get_cmap('Blues'))
 	plt.title(title)
@@ -73,9 +76,6 @@ def plot_confusion_matrix(cm,
 		ticks = np.arange(len(target_names))
 		plt.xticks(ticks, target_names, rotation=45)
 		plt.yticks(ticks, target_names)
-
-	if normalize:
-		cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
 
 	thresh = 0.6*cm.max()
 	for i in range(cm.shape[0]):
