@@ -42,11 +42,15 @@ We can observe that:
 
 The code files are organized as follows:
 
-**Main training files:**
+**Main testing/training files:**
 - **`vgg_lstm.py`** - Run this to train the VGG-LSTM model
 - **`vgg_sift_lstm.py`** - Run this to train the VGG-SIFT-LSTM model
 - **`densenet_lstm.py`** - Run this to train the DenseNet-LSTM model
 - **`densenet_sift_lstm.py`** - Run this to train the DenseNet-SIFT-LSTM model
+
+To test the accuracy of the relevant model, simply run one of these files as is, without arguments, e.g. `python vgg_sift_lstm.py`. Note that this requires that you have a saved hdf5 file containing the pre-trained model in `models/name_of_the_model.h5`.
+
+To train the model from scratch, run one of these files with `train` as argument, e.g. `vgg_sift_lstm.py train`.
 
 **Auxiliary files:**
 - **`extraction.py`** - Everything related to data extraction
