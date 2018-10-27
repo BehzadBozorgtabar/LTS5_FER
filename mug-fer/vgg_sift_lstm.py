@@ -3,8 +3,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
-from sklearn.cross_validation import StratifiedKFold
 from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import StratifiedKFold
 
 from keras.models import Model, Sequential, load_model
 from keras.layers import Input, Convolution2D, ZeroPadding2D, MaxPooling2D, Flatten, Dense, Dropout, Activation, TimeDistributed, LSTM, BatchNormalization, GlobalAveragePooling2D
@@ -129,12 +129,10 @@ else:
 ## TESTING ##
 
 # Get back the train/test split used
-train_idx, test_idx = [],[]
+skf = StratifiedKFold(n_splits=5, shuffle=False)
 labels = np.argmax(y, axis=1)
-skf = StratifiedKFold(labels, n_folds=5, shuffle=False)
-for i, (train, test) in enumerate(skf):
-	train_idx.append(train)
-	test_idx.append(test)
+train_test = [(train, test) for (train,test) in skf.split(y, labels)]
+train_idx, test_idx = zip(*train_test)
 
 # Get emotion predictions
 test_indices = test_idx[1]
