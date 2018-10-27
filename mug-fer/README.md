@@ -23,6 +23,15 @@ This model is the same as VGG-LSTM, except that instead of VGG-16 we use a [Dens
 #### DenseNet-SIFT-LSTM
 This model is the same as VGG-SIFT-LSTM, except that we use DenseNet-121 instead of VGG-16.
 
+#### TCNN-PHRNN
+In this model, we explore the late-fusion of image frames and facial landmarks. The idea is to use train two separate models and later combine them by averaging their prediction vector.
+
+The first model is a Temporal Convolutional Neural Network (TCNN) that consists of a customized version of VGG-16 with VGG-Face weigths. The input of this model is the 5 image frames. The main difference with VGG-16 is in the first layer, a convolution is applied to each of the frames, and then the 5 outputs are aggregated by averaging. An example of such a network with 3 frames is shown below:
+![TCNN Network](img/tcnn.png "TCNN Network")
+
+The second model is a Part-based Hierarchical Bidirectional Recurrent Neural Network (PHRNN), that uses the facial landmarks of each frame has an input. The particularity of the this model is that clusters of facial landmarks are hierarchically grouped at each layer. The facial landmarks are passed through a BRNN at each layer, except at the last layer, where a BLSTM is used. A diagram of the model is shown below.
+![PHRNN Network](img/phrnn.png "TCNN Network")
+
 ### Results
 To evaluate the performance of the different models, the average validation accuracy over a 5-fold cross-validation was computed. We also show the inference time for each model, i.e. the time the model takes to output a prediction when it takes raw images as input.
 
@@ -32,6 +41,7 @@ To evaluate the performance of the different models, the average validation accu
 | **VGG-SIFT-LSTM**      | **95.5%**|         196         |
 | **DenseNet-LSTM**      |   84.5%  |         267         |
 | **DenseNet-SIFT-LSTM** |   94.2%  |         279         |
+| **TCNN-PHRNN**         |   91.2%  |          ?          |
 
 We can observe that:
 1. The addition of the SIFT descriptors results in a significant improvement, both in the VGG and the DenseNet-based models.
@@ -43,10 +53,11 @@ We can observe that:
 The code files are organized as follows:
 
 **Main testing/training files:**
-- **`vgg_lstm.py`** - Run this to train the VGG-LSTM model
-- **`vgg_sift_lstm.py`** - Run this to train the VGG-SIFT-LSTM model
-- **`densenet_lstm.py`** - Run this to train the DenseNet-LSTM model
-- **`densenet_sift_lstm.py`** - Run this to train the DenseNet-SIFT-LSTM model
+- **`vgg_lstm.py`**
+- **`vgg_sift_lstm.py`**
+- **`densenet_lstm.py`**
+- **`densenet_sift_lstm.py`**
+- **`tcnn_phrnn.py`**
 
 To test the accuracy of the relevant model, simply run one of these files as is, without arguments, e.g. `python vgg_sift_lstm.py`. Note that this requires that you have a saved hdf5 file containing the pre-trained model in `models/name_of_the_model.h5`.
 
