@@ -121,7 +121,7 @@ def extract_all_sift_features(x_data):
 #### VGG MODEL ####
 
 def get_vgg_custom(vgg_weights_path, output_layer=None):
-    vgg = load_model(custom_vgg_weights_path)
+    vgg = load_model(vgg_weights_path)
     if output_layer is not None:
         output = vgg.get_layer(output_layer).output
         vgg = Model(inputs=vgg.input, outputs=output)

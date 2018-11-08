@@ -210,50 +210,52 @@ def get_conv_1_1_weights(vgg_weights_path):
     conv1_1_weigths = temp_mod.get_layer('conv1_1').get_weights()
     return conv1_1_weigths
 
-def create_phrnn_model():
-    # Define inputs
-    eyebrows_input = Input(shape=(5, 20), name='eyebrows_input')
-    nose_input = Input(shape=(5, 18), name='nose_input')
-    eyes_input = Input(shape=(5, 24), name='eyes_input')
-    out_lip_input = Input(shape=(5, 24), name='out_lip_input')
-    in_lip_input = Input(shape=(5, 16), name='in_lip_input')
-    
-    # First level of BRNNs
-    eyebrows = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_1')(eyebrows_input)
-    nose = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_2')(nose_input)
-    eyes = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_3')(eyes_input)
-    in_lip = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_4')(in_lip_input)
-    out_lip = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_5')(out_lip_input)
+def create_phrnn_model(features_per_lm):
+    def phrnn_creator():
+        # Define inputs
+        eyebrows_input = Input(shape=(5, 10*features_per_lm), name='eyebrows_input')
+        nose_input = Input(shape=(5, 9*features_per_lm), name='nose_input')
+        eyes_input = Input(shape=(5, 12*features_per_lm), name='eyes_input')
+        out_lip_input = Input(shape=(5, 12*features_per_lm), name='out_lip_input')
+        in_lip_input = Input(shape=(5, 8*features_per_lm), name='in_lip_input')
 
-    eyebrows_nose = concatenate([eyebrows, nose])
-    eyes_in_lip = concatenate([eyes, in_lip])
-    
-    # Second level of BRNNs
-    eyebrows_nose = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_1')(eyebrows_nose)
-    eyes_in_lip = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_2')(eyes_in_lip)
-    out_lip = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_3')(out_lip)
+        # First level of BRNNs
+        eyebrows = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_1')(eyebrows_input)
+        nose = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_2')(nose_input)
+        eyes = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_3')(eyes_input)
+        in_lip = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_4')(in_lip_input)
+        out_lip = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_5')(out_lip_input)
 
-    eyes_lips = concatenate([eyes_in_lip, out_lip])
-    
-    # Third level of BRNNs
-    eyebrows_nose = Bidirectional(SimpleRNN(90, return_sequences=True), name='BRNN90_1')(eyebrows_nose)
-    eyes_lips = Bidirectional(SimpleRNN(90, return_sequences=True), name='BRNN90_2')(eyes_lips)
+        eyebrows_nose = concatenate([eyebrows, nose])
+        eyes_in_lip = concatenate([eyes, in_lip])
 
-    output = concatenate([eyebrows_nose, eyes_lips])
-    
-    # Final BLSTM and fully-connected layers
-    output = Bidirectional(LSTM(80), name='BLSTM')(output)
-    output = Dense(128, activation="relu", name='fc1')(output)
-    output = Dense(nb_emotions, activation="softmax", name='fc2')(output)
+        # Second level of BRNNs
+        eyebrows_nose = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_1')(eyebrows_nose)
+        eyes_in_lip = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_2')(eyes_in_lip)
+        out_lip = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_3')(out_lip)
 
-    inputs = [eyebrows_input, nose_input, eyes_input, in_lip_input, out_lip_input]
-    phrnn = Model(inputs=inputs, outputs=output)
+        eyes_lips = concatenate([eyes_in_lip, out_lip])
+
+        # Third level of BRNNs
+        eyebrows_nose = Bidirectional(SimpleRNN(90, return_sequences=True), name='BRNN90_1')(eyebrows_nose)
+        eyes_lips = Bidirectional(SimpleRNN(90, return_sequences=True), name='BRNN90_2')(eyes_lips)
+
+        output = concatenate([eyebrows_nose, eyes_lips])
+
+        # Final BLSTM and fully-connected layers
+        output = Bidirectional(LSTM(80), name='BLSTM')(output)
+        output = Dense(128, activation="relu", name='fc1')(output)
+        output = Dense(nb_emotions, activation="softmax", name='fc2')(output)
+
+        inputs = [eyebrows_input, nose_input, eyes_input, in_lip_input, out_lip_input]
+        phrnn = Model(inputs=inputs, outputs=output)
+
+        phrnn.compile(loss='categorical_crossentropy',
+                      optimizer=optimizers.Adam(),
+                      metrics=['accuracy'])
+        return phrnn
     
-    phrnn.compile(loss='categorical_crossentropy',
-                  optimizer=optimizers.Adam(),
-                  metrics=['accuracy'])
-    
-    return phrnn
+    return phrnn_creator
 
 def train_phrnn_crossval(create_model, landmarks_inputs, y, batch_size, epochs, callbacks, n_splits, save_best_model=False, model_path=None):
     """Train PHRNN model using n-fold crossvalidation.
@@ -297,6 +299,26 @@ def train_phrnn_crossval(create_model, landmarks_inputs, y, batch_size, epochs, 
     print('Average validation accuracy : {:.6f}'.format(cross_val_acc))
     
     return model, skf, histories
+    
+def create_tcnn_top():
+    """Create the top of the tcnn with fully connected layers.
+    """
+    input_shape=(7, 7, 512)
+
+    tcnn_top = Sequential()
+    tcnn_top.add(Convolution2D(1024, (7, 7), activation='relu', name='fc6', input_shape=input_shape))
+    tcnn_top.add(Dropout(0.5))
+    tcnn_top.add(Convolution2D(512, (1, 1), activation='relu', name='fc7'))
+    tcnn_top.add(Dropout(0.5))
+    tcnn_top.add(Convolution2D(7, (1, 1), name='fc8'))
+    tcnn_top.add(Flatten())
+    tcnn_top.add(Activation('softmax'))
+    
+    tcnn_top.compile(loss='categorical_crossentropy',
+                 optimizer=optimizers.Adam(),
+                 metrics=['accuracy'])
+    
+    return tcnn_top
 
 def train_tcnn_crossval(create_model, x, y, batch_size, epochs, callbacks, n_splits, save_best_model=False, model_path=None):
     """Train the TCNN model using n-fold crossvalidation.

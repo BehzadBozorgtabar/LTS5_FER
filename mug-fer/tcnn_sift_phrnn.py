@@ -13,7 +13,7 @@ from keras import optimizers
 
 from extract import extract_frames, extract_data, extract_model_features
 from training import create_tcnn_bottom, get_conv_1_1_weights, create_phrnn_model, create_tcnn_top, train_tcnn_crossval, train_phrnn_crossval, load_cross_val_models, cross_validate_tcnn_phrnn, CustomVerbose
-from sift import compute_face_landmarks, normalize_face_landmarks
+from sift import extract_all_sift_features
 from plot import plot_histories, plot_confusion_matrix
 from const import *
 
@@ -27,7 +27,7 @@ train = len(sys.argv) > 1 and sys.argv[1]=='train'
 
 # If the sift or vgg features were pre-computed, we don't have to recompute them
 load_vgg_features = os.path.isfile(vgg_features_tcnn_path)
-load_face_landmarks = os.path.isfile(face_landmarks_path)
+load_sift_features = os.path.isfile(sift_features_path)
 load_frames = os.path.isdir(frames_path)
 
 
@@ -39,7 +39,7 @@ if not load_frames:
 
 
 # Now we extract the training and target data from the frames
-if not(load_vgg_features and load_face_landmarks):
+if not(load_vgg_features and load_sift_features):
 	x, y = extract_data(frames_path)
 else:
 	with open(y_data_path, 'rb') as f:
@@ -69,22 +69,23 @@ outside_lip_mask = np.logical_and(31 <= lm_range, lm_range < 43) # 12 landmarks
 inside_lip_mask = (43 <= lm_range) # 8 landmarks
 nose_landmark_idx = 13
 
-if load_face_landmarks:
-	with open(face_landmarks_path, 'rb') as f:
-		face_landmarks = pickle.load(f)
+if load_sift_features:
+	with open(sift_features_path, 'rb') as f:
+		sift_features = pickle.load(f)
 else:
-	print('Computing face landmarks...')
-	face_landmarks = compute_face_landmarks(x)
-face_landmarks_norm = normalize_face_landmarks(face_landmarks, nose_landmark_idx)
+	# Extract SIFT features
+	sift_features = extract_all_sift_features(x)
+
+sift_features = sift_features.reshape((-1, 5, 51, 128))
 
 # Prepare the different landmarks clusters
-eyebrows_landmarks = face_landmarks_norm[:,:, eyebrows_mask].reshape((nb_samples, nb_frames, -1))
-nose_landmarks = face_landmarks_norm[:,:, nose_mask].reshape((nb_samples, nb_frames, -1))
-eyes_landmarks = face_landmarks_norm[:,:, eyes_mask].reshape((nb_samples, nb_frames, -1))
-inside_lip_landmarks = face_landmarks_norm[:,:, inside_lip_mask].reshape((nb_samples, nb_frames, -1))
-outside_lip_landmarks = face_landmarks_norm[:,:, outside_lip_mask].reshape((nb_samples, nb_frames, -1))
+eyebrows_landmarks = sift_features[:,:, eyebrows_mask].reshape((nb_samples, nb_frames, -1))
+nose_landmarks = sift_features[:,:, nose_mask].reshape((nb_samples, nb_frames, -1))
+eyes_landmarks = sift_features[:,:, eyes_mask].reshape((nb_samples, nb_frames, -1))
+inside_lip_landmarks = sift_features[:,:, inside_lip_mask].reshape((nb_samples, nb_frames, -1))
+outside_lip_landmarks = sift_features[:,:, outside_lip_mask].reshape((nb_samples, nb_frames, -1))
 
-landmarks_inputs = [eyebrows_landmarks, nose_landmarks, eyes_landmarks, inside_lip_landmarks, outside_lip_landmarks]
+sift_inputs = [eyebrows_landmarks, nose_landmarks, eyes_landmarks, inside_lip_landmarks, outside_lip_landmarks]
 
 ## TRAINING ##
 
@@ -119,7 +120,7 @@ if train:
 	epochs=80
 	n_splits=5
 	save_best_model = True
-	model_path = 'models/phrnn/phrnn2.h5'
+	model_path = 'models/phrnn/sift-phrnn2.h5'
 
 	# Create the callbacks
 	custom_verbose = CustomVerbose(epochs)
@@ -127,7 +128,7 @@ if train:
 	callbacks = [custom_verbose, early_stop]
 
 	phrnn, skf, histories = train_phrnn_crossval(create_phrnn_model(features_per_lm=128), 
-	                                             landmarks_inputs, 
+	                                             sift_inputs, 
 	                                             y, 
 	                                             batch_size=batch_size, 
 	                                             epochs=epochs, 
@@ -141,14 +142,14 @@ if train:
 
 # Load all models to cross-validation
 tcnn_model_path = 'models/tcnn/tcnn'+('2' if train else '')
-phrnn_model_path = 'models/phrnn/phrnn'+('2' if train else '')
+phrnn_model_path = 'models/phrnn/sift-phrnn'+('2' if train else '')
 model_path_ext = '.h5'
 tcnn_models, phrnn_models = load_cross_val_models(tcnn_model_path, phrnn_model_path, model_path_ext, 5, y)
 
 # Compute cross-validation accuracy of the combined model
-merge_weights = [0.5]
-accuracies = cross_validate_tcnn_phrnn(merge_weights, 5, tcnn_models, phrnn_models, vgg_features, landmarks_inputs, y)
+merge_weights = [0.4]
+accuracies = cross_validate_tcnn_phrnn(merge_weights, 5, tcnn_models, phrnn_models, vgg_features, sift_inputs, y)
 best_crossval_acc = np.average(accuracies, axis=0)[0]
 st_dev = np.std(accuracies, axis=0)[0]
-print('Cross-validation accuracy of TCNN-PHRNN : {:.4f}'.format(best_crossval_acc))
-print('                     Standard deviation : {:.4f}'.format(st_dev))
+print('Cross-validation accuracy of TCNN-SIFT-PHRNN : {:.4f}'.format(best_crossval_acc))
+print('                          Standard deviation : {:.4f}'.format(st_dev))
