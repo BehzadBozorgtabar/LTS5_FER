@@ -14,7 +14,7 @@ face_landmarks_path = 'data/face_landmarks.pkl'
 y_data_path = 'data/y_data.pkl'
 
 vgg_lstm_model_path = 'models/vgg-lstm.h5'
-vgg_sift_lstm_model_path = 'models/vgg-sift-lstm.h5'
+vgg_sift_lstm_model_path = 'models/vgg-sift-lstm/vgg-sift-lstm.h5'
 densenet_lstm_model_path = 'models/densenet-lstm.h5'
 densenet_sift_lstm_model_path = 'models/densenet-sift-lstm.h5'
 tcnn_model_path = 'models/tcnn/tcnn.h5'

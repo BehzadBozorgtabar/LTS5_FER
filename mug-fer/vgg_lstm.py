@@ -85,12 +85,12 @@ if train:
   epochs=100
   n_folds=5
   save_best_model = False
-  weights_path = 'models/vgg-lstm2.h5'
+  model_path = 'models/vgg-lstm2.h5'
 
   # Create the callbacks
   custom_verbose = CustomVerbose(epochs)
   early_stop = EarlyStopping(patience=30)
-  model_checkpoint = ModelCheckpoint(weights_path,
+  model_checkpoint = ModelCheckpoint(model_path,
                                      monitor='val_acc',
                                      save_best_only=True,
                                      save_weights_only=True)
@@ -104,7 +104,7 @@ if train:
                                         callbacks=callbacks,
                                         n_folds=n_folds,
                                         save_best_model=save_best_model,
-                                        weights_path=weights_path)
+                                        model_path=model_path)
 
   print("\nTraining complete.")
   plot_histories(histories, 'VGG-LSTM, {}-fold cross-validation'.format(n_folds))

@@ -72,12 +72,17 @@ def create_vgg_fc7(weights_path):
     return vgg16_fc7
 
 
-def train_crossval(create_model, x, y, batch_size, epochs, callbacks, n_folds, save_best_model=False, weights_path=None):
+def train_crossval(create_model, x, y, batch_size, epochs, callbacks, n_folds, save_best_model=False, save_each_split=True, model_path=None):
     """Train a model using n-folds crossvalidation.
     """
     # Prepare for cross-validation
     labels = np.argmax(y, axis=1)
     skf = StratifiedKFold(n_splits=n_folds, shuffle=False)
+
+    if save_best_model:
+        cur_callbacks = callbacks.copy()
+        model_checkpoint = ModelCheckpoint(model_path, monitor='val_acc', save_best_only=True)
+        cur_callbacks.append(model_checkpoint)
 
     histories = []
     val_accs = []
@@ -85,13 +90,19 @@ def train_crossval(create_model, x, y, batch_size, epochs, callbacks, n_folds, s
         print("Running Fold {}/{}".format(i+1, n_folds))
         model = create_model()
 
+        if save_best_model and save_each_split:
+            cur_model_path = model_path[:-3]+'_split'+str(i+1)+model_path[-3:]
+            model_checkpoint = ModelCheckpoint(cur_model_path, monitor='val_acc', save_best_only=True)
+            cur_callbacks = callbacks.copy()
+            cur_callbacks.append(model_checkpoint)
+
         hist = model.fit(x[train],
                          y[train],
                          validation_data = (x[test], y[test]),
                          batch_size=batch_size,
                          epochs=epochs,
                          shuffle=True,
-                         callbacks=callbacks,
+                         callbacks=cur_callbacks if save_best_model else callbacks,
                          verbose=0)
         histories.append(hist)
 
@@ -102,7 +113,7 @@ def train_crossval(create_model, x, y, batch_size, epochs, callbacks, n_folds, s
         print("  Best model : epoch {} - val_acc: {:.6f}".format(best_epoch, best_val_acc))
 
     if save_best_model:
-        model.load_weights(weights_path)
+        model = load_model(model_path)
 
     cross_val_acc = np.mean(val_accs)
     print('Average validation accuracy : {:.6f}'.format(cross_val_acc))

@@ -15,6 +15,7 @@ from extract import extract_frames, extract_data, extract_model_features
 from training import create_vgg_fc7, train_crossval, CustomVerbose
 from sift import extract_all_sift_features
 from plot import plot_histories, plot_confusion_matrix
+from evaluate import evaluate_model
 from const import *
 
 def create_lstm_sift_model():
@@ -95,19 +96,16 @@ vgg_sift_features = np.concatenate([vgg_features, sift_features], axis=2)
 if train:
 	print("Training LSTM model...")
 	batch_size=32
-	epochs=300
+	epochs=400
 	n_folds=5
-	save_best_model = False
-	weights_path = 'models/vgg-sift-lstm2.h5'
+	save_best_model = True
+	trained_model_path = 'models/vgg-sift-lstm/vgg-sift-lstm.h5'
 
 	# Create the callbacks
 	custom_verbose = CustomVerbose(epochs)
-	early_stop = EarlyStopping(patience=50)
-	model_checkpoint = ModelCheckpoint(weights_path,
-												 monitor='val_acc',
-												 save_best_only=True,
-												 save_weights_only=True)
-	callbacks = [custom_verbose, early_stop, model_checkpoint] if save_best_model else [custom_verbose, early_stop]
+	early_stop = EarlyStopping(patience=100)
+
+	callbacks = [custom_verbose, early_stop]
 
 	lstm_sift, skf, histories = train_crossval(create_lstm_sift_model,
 															vgg_sift_features,
@@ -117,33 +115,18 @@ if train:
 															callbacks=callbacks,
 															n_folds=n_folds,
 															save_best_model=save_best_model,
-															weights_path=weights_path)
+															model_path=trained_model_path)
 
 	print("\nTraining complete.")
 	plot_histories(histories, 'VGG-SIFT-LSTM, {}-fold cross-validation'.format(n_folds))
 
-else:
-	lstm_sift = load_model(vgg_sift_lstm_model_path)
-
 
 ## TESTING ##
+model_path = trained_model_path if train else vgg_sift_lstm_model_path
 
-# Get back the train/test split used
-skf = StratifiedKFold(n_splits=5, shuffle=False)
-labels = np.argmax(y, axis=1)
-train_test = [(train, test) for (train,test) in skf.split(y, labels)]
-train_idx, test_idx = zip(*train_test)
+y_pred, y_true = evaluate_model(vgg_sift_features, y, model_path, n_splits=5)
 
-# Get emotion predictions
-test_indices = test_idx[1]
-y_predict = lstm_sift.predict_classes(vgg_sift_features[test_indices])
-y_true = np.argmax(y[test_indices], axis=1)
-
-# Computes the accuracy
-acc = (y_predict==y_true).sum()/len(y_predict)
-print('Test accuracy : {:.4f}'.format(acc))
-
-# Plot the confusion matrix
-cm = confusion_matrix(np.argmax(y[test_indices], axis=1), y_predict)
-plot_confusion_matrix(cm, emotions, title='VGG-SIFT-LSTM', normalize=True)
+# Plot confusion matrix
+cm = confusion_matrix(y_true, y_pred)
+plot_confusion_matrix(cm, emotions, title='VGG-SIFT-LSTM  -  MUG', normalize=True)
 
