@@ -19,6 +19,7 @@ densenet_lstm_model_path = 'models/densenet-lstm.h5'
 densenet_sift_lstm_model_path = 'models/densenet-sift-lstm.h5'
 tcnn_model_path = 'models/tcnn/tcnn.h5'
 phrnn_model_path = 'models/phrnn/phrnn.h5'
+sift_phrnn_model_path = 'models/phrnn/sift-phrnn.h5'
 
 img_size = 224 # resize images to 224*224 px
 nb_frames = 5 # Number of frames to select in each video

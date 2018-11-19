@@ -15,6 +15,7 @@ from extract import extract_frames, extract_data, extract_model_features
 from training import create_tcnn_bottom, get_conv_1_1_weights, create_phrnn_model, create_tcnn_top, train_tcnn_crossval, train_phrnn_crossval, load_cross_val_models, cross_validate_tcnn_phrnn, CustomVerbose
 from sift import extract_all_sift_features
 from plot import plot_histories, plot_confusion_matrix
+from evaluate import evaluate_tcnn_phrnn_model
 from const import *
 
 ###########################
@@ -95,7 +96,7 @@ if train:
 	epochs=80
 	n_splits=5
 	save_best_model = True
-	model_path = 'models/tcnn/tcnn2.h5'
+	trained_tcnn_model_path = 'models/tcnn/tcnn2.h5'
 
 	# Create the callbacks
 	custom_verbose = CustomVerbose(epochs)
@@ -110,7 +111,7 @@ if train:
 												   callbacks=callbacks, 
 												   n_splits=n_splits, 
 												   save_best_model=save_best_model, 
-												   model_path=model_path)
+												   model_path=trained_tcnn_model_path)
 	print("\nTraining of TCNN complete.")
 	plot_histories(histories, 'VGG-TCNN, {}-fold cross-validation'.format(n_splits))
 
@@ -120,7 +121,7 @@ if train:
 	epochs=80
 	n_splits=5
 	save_best_model = True
-	model_path = 'models/phrnn/sift-phrnn2.h5'
+	trained_phrnn_model_path = 'models/phrnn/sift-phrnn2.h5'
 
 	# Create the callbacks
 	custom_verbose = CustomVerbose(epochs)
@@ -135,21 +136,18 @@ if train:
 	                                             callbacks=callbacks, 
 	                                             n_splits=n_splits, 
 	                                             save_best_model=save_best_model, 
-	                                             model_path=model_path)
+	                                             model_path=trained_phrnn_model_path)
 	print("\nTraining of PHRNN complete.")
 	plot_histories(histories, 'PHRNN, {}-fold cross-validation'.format(n_splits))
 
 
-# Load all models to cross-validation
-tcnn_model_path = 'models/tcnn/tcnn'+('2' if train else '')
-phrnn_model_path = 'models/phrnn/sift-phrnn'+('2' if train else '')
-model_path_ext = '.h5'
-tcnn_models, phrnn_models = load_cross_val_models(tcnn_model_path, phrnn_model_path, model_path_ext, 5, y)
 
-# Compute cross-validation accuracy of the combined model
-merge_weights = [0.4]
-accuracies = cross_validate_tcnn_phrnn(merge_weights, 5, tcnn_models, phrnn_models, vgg_features, sift_inputs, y)
-best_crossval_acc = np.average(accuracies, axis=0)[0]
-st_dev = np.std(accuracies, axis=0)[0]
-print('Cross-validation accuracy of TCNN-SIFT-PHRNN : {:.4f}'.format(best_crossval_acc))
-print('                          Standard deviation : {:.4f}'.format(st_dev))
+# TESTING ##
+tcnn_model_path = trained_tcnn_model_path if train else tcnn_model_path
+phrnn_model_path = trained_phrnn_model_path if train else sift_phrnn_model_path
+
+y_pred, y_true = evaluate_tcnn_phrnn_model(vgg_features, sift_inputs, y, tcnn_model_path, phrnn_model_path, n_splits=5, merge_weight=0.4)
+
+# Plot confusion matrix
+cm = confusion_matrix(y_true, y_pred)
+plot_confusion_matrix(cm, emotions, title='TCNN-SIFT-PHRNN  -  MUG', normalize=True)
