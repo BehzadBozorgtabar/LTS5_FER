@@ -112,9 +112,6 @@ def train_crossval(create_model, x, y, batch_size, epochs, callbacks, n_folds, s
         val_accs.append(best_val_acc)
         print("  Best model : epoch {} - val_acc: {:.6f}".format(best_epoch, best_val_acc))
 
-    if save_best_model:
-        model = load_model(model_path)
-
     cross_val_acc = np.mean(val_accs)
     print('Average validation accuracy : {:.6f}'.format(cross_val_acc))
 

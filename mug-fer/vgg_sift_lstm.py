@@ -23,7 +23,7 @@ def create_lstm_sift_model():
 	"""
 	lstm_units = 32
 	hidden_units = 16
-	input_dim = 10624  # 4096 for vgg + 6528 for sift
+	input_dim = 7552  # 1024 for vgg + 6528 for sift
 
 	input_shape = (nb_frames, input_dim)
 
@@ -99,7 +99,7 @@ if train:
 	epochs=400
 	n_folds=5
 	save_best_model = True
-	trained_model_path = 'models/vgg-sift-lstm/vgg-sift-lstm.h5'
+	trained_model_path = 'models/vgg-sift-lstm/vgg-sift-lstm3.h5'
 
 	# Create the callbacks
 	custom_verbose = CustomVerbose(epochs)

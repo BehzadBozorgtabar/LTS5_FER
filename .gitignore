@@ -10,3 +10,6 @@ raf-fer/data/*
 raf-fer/RAF-data/*
 raf-fer/test.py
 raf-fer/__pycache__/*
+
+ADAS&ME/__pycache__/*
+ADAS&ME/models/*
