@@ -10,6 +10,8 @@ import pickle
 
 from keras.utils.np_utils import to_categorical
 from keras.models import Model, Sequential, load_model
+from keras.layers import Input, Reshape, ZeroPadding2D, MaxPooling2D, Flatten, Dropout, Activation, concatenate, average
+from keras.layers import Dense, Convolution2D, SimpleRNN, LSTM, Bidirectional
 
 from const import *
 
@@ -182,7 +184,7 @@ def extract_data(frames_path, annotations_path):
     x = []
     
     annotations = pd.read_csv(annotations_path)
-    y = annotations.apply(lambda row: get_emotion_class(row['Valence'], row['Arousal']), axis=1).values
+    y = annotations.apply(lambda row: int(row['Severity'])-1, axis=1).values
 
     frames = sorted([f for f in os.listdir(frames_path) if f.endswith('.png')])
     frames_ref = []
@@ -217,37 +219,6 @@ def create_vgg_extractor(model_path, output_layer='fc6'):
     
     return vgg_fc
 
-
-def extract_data(frames_path, annotations_path):
-    """Extracts trainingand target data (x & y) from the video frames.
-    
-    Keyword arguments:
-    frames_path -- path of the folder in which the selected frames should be stored
-    """
-    x = []
-    
-    annotations = pd.read_csv(annotations_path)
-    y = annotations.apply(lambda row: get_emotion_class(row['Valence'], row['Arousal']), axis=1).values
-
-    frames = sorted([f for f in os.listdir(frames_path) if f.endswith('.png')])
-    frames_ref = []
-
-    for (i, frame) in enumerate(frames):
-        img = imread(frames_path+"/"+frame)
-
-        # convert to rgb if greyscale
-        if len(img.shape)==2:
-            img = np.stack((img,)*3, axis=-1)
-
-        x.append(img)
-        frames_ref.append(int(frame[:-4]))
-            
-    x = np.multiply(np.array(x), 1/256)
-    y = np.asarray(y)
-    
-    return x, y, np.asarray(frames_ref)
-
-
 def extract_sift_vgg(sift_extractor, vgg_extractor, frames_path, annotations_path, smb_files_list, dest_folder):
     """Extract and save vgg and sift features from the frames.
     """
@@ -258,7 +229,7 @@ def extract_sift_vgg(sift_extractor, vgg_extractor, frames_path, annotations_pat
         print('Extracting from '+smb_file+'...')
         frames_path_full = frames_path+'/'+smb_file
         annotations_path_full = annotations_path+'/'+smb_file+'_annotated.csv'
-        x, y, frames_ref = extract_data(frames_path_full, annotations_path_full)
+        x, _, _ = extract_data(frames_path_full, annotations_path_full)
         
         print(' SIFT features...')
         sift_features = sift_extractor(x)
@@ -271,6 +242,115 @@ def extract_sift_vgg(sift_extractor, vgg_extractor, frames_path, annotations_pat
         with open('{}/vggCustom_{}.pkl'.format(dest_folder, smb_file), 'wb') as f:
             pickle.dump(vgg_features, f)
         vgg_features = None
-        
         x = None
 
+def extract_vgg_tcnn(vgg_predictor, nb_frames_per_sample, frames_path, annotations_path, smb_files_list, dest_folder):
+    """Extract VGG-TCNN features from the frames.
+    """
+    for smb_file in smb_files_list:        
+        print('Extracting from '+smb_file+'...')
+        frames_path_full = frames_path+'/'+smb_file
+        annotations_path_full = annotations_path+'/'+smb_file+'_annotated.csv'
+        x, _, _ = extract_data(frames_path_full, annotations_path_full)
+        
+        # Group by sequences of 'nb_frames_per_sample' frames
+        trim = x.shape[0] - x.shape[0]%nb_frames_per_sample
+        x = x[:trim]
+        x = x.reshape((-1, nb_frames_per_sample, img_size, img_size, 3))
+        
+        print(' Computing VGG-TCNN features...')
+        vgg_tcnn_features = vgg_predictor([x[:,i] for i in range(nb_frames_per_sample)])
+        
+        dest = dest_folder+'/vgg_tcnn'
+        if not os.path.exists(dest):
+            os.makedirs(dest)
+            
+        with open('{}/vgg_tcnn_{}.pkl'.format(dest, smb_file), 'wb') as f:
+            pickle.dump(vgg_tcnn_features, f)
+        vgg_tcnn_features = None
+        x = None
+
+def get_conv_1_1_weights(vgg_weights_path):
+    """Returns the weigths of first convolutional layer of VGG-Face (conv_1_1).
+    """
+    temp_mod = Sequential()
+    temp_mod.add(ZeroPadding2D((1,1),input_shape=(img_size, img_size, 3)))
+    temp_mod.add(Convolution2D(64, (3, 3), activation='relu', name='conv1_1'))
+    temp_mod.load_weights(vgg_weights_path, by_name=True)
+    conv1_1_weigths = temp_mod.get_layer('conv1_1').get_weights()
+    return conv1_1_weigths
+
+def create_tcnn_bottom(vgg_weights_path, conv1_1_weigths):
+    """Creates the bottom part of the VGG-16 TCNN.
+    """
+    # Create inputs for the 5 frames
+    input_shape=(img_size, img_size, 3)
+    frame1 = Input(shape=input_shape)
+    frame2 = Input(shape=input_shape)
+    frame3 = Input(shape=input_shape)
+    frame4 = Input(shape=input_shape)
+    frame5 = Input(shape=input_shape)
+    
+    # Convolution for each frame
+    frame1_conv = ZeroPadding2D((1,1))(frame1)
+    frame1_conv = Convolution2D(64, (3, 3), activation='relu', name='conv1_1a')(frame1_conv)
+
+    frame2_conv = ZeroPadding2D((1,1))(frame2)
+    frame2_conv = Convolution2D(64, (3, 3), activation='relu', name='conv1_1b')(frame2_conv)
+
+    frame3_conv = ZeroPadding2D((1,1))(frame3)
+    frame3_conv = Convolution2D(64, (3, 3), activation='relu', name='conv1_1c')(frame3_conv)
+
+    frame4_conv = ZeroPadding2D((1,1))(frame4)
+    frame4_conv = Convolution2D(64, (3, 3), activation='relu', name='conv1_1d')(frame4_conv)
+
+    frame5_conv = ZeroPadding2D((1,1))(frame5)
+    frame5_conv = Convolution2D(64, (3, 3), activation='relu', name='conv1_1e')(frame5_conv)
+    
+    # Temporal aggregation by averaging
+    temp_aggr = average([frame1_conv, frame2_conv, frame3_conv, frame4_conv, frame5_conv])
+
+    # Then standard VGG-16 architecture
+    output = ZeroPadding2D((1,1))(temp_aggr)
+    output = Convolution2D(64, (3, 3), activation='relu', name='conv1_2')(output)
+    output = MaxPooling2D((2,2), strides=(2,2))(output)
+
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(128, (3, 3), activation='relu', name='conv2_1')(output)
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(128, (3, 3), activation='relu', name='conv2_2')(output)
+    output = MaxPooling2D((2,2), strides=(2,2))(output)
+
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(256, (3, 3), activation='relu', name='conv3_1')(output)
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(256, (3, 3), activation='relu', name='conv3_2')(output)
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(256, (3, 3), activation='relu', name='conv3_3')(output)
+    output = MaxPooling2D((2,2), strides=(2,2))(output)
+
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(512, (3, 3), activation='relu', name='conv4_1')(output)
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(512, (3, 3), activation='relu', name='conv4_2')(output)
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(512, (3, 3), activation='relu', name='conv4_3')(output)
+    output = MaxPooling2D((2,2), strides=(2,2))(output)
+
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(512, (3, 3), activation='relu', name='conv5_1')(output)
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(512, (3, 3), activation='relu', name='conv5_2')(output)
+    output = ZeroPadding2D((1,1))(output)
+    output = Convolution2D(512, (3, 3), activation='relu', name='conv5_3')(output)
+    output = MaxPooling2D((2,2), strides=(2,2))(output)
+
+    inputs = [frame1, frame2, frame3, frame4, frame5]
+    model = Model(inputs=inputs, outputs=output)
+    
+    # load VGG-face weigths
+    model.load_weights(vgg_weights_path, by_name=True)
+    for layer in ['conv1_1a', 'conv1_1b', 'conv1_1c', 'conv1_1d', 'conv1_1e']:
+        model.get_layer(layer).set_weights(conv1_1_weigths)
+
+    return model

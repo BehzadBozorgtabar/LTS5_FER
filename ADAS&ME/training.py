@@ -9,6 +9,7 @@ from keras import optimizers
 from keras.utils import Sequence
 from keras.utils.np_utils import to_categorical
 
+from sklearn.utils.class_weight import compute_class_weight
 
 from const import *
 
@@ -26,14 +27,13 @@ class CustomVerbose(Callback):
 
 
 class DataGenerator(Sequence):
-    'Generates data for training'
-    def __init__(self, files_list, files_per_batch=1, dim=(224,224,3), n_channels=1,
+    'Generates data for training on the ADAS&ME dataset'
+    def __init__(self, files_list, files_per_batch=1, dim=(224,224,3),
                  data_path='data', annotations_path='ADAS&ME_data/annotated', nb_frames_per_sample=5):
         'Initialization'
         self.files_list = files_list
         self.files_per_batch = files_per_batch
         self.dim = dim
-        self.n_channels = n_channels
         self.data_path = data_path
         self.annotations_path = annotations_path
         self.nb_frames_per_sample = nb_frames_per_sample
@@ -54,8 +54,6 @@ class DataGenerator(Sequence):
     
     def load_data_from_file(self, file):
         'Loads the data from a the given file'
-        #print('Loading '+'/'.join(file))
-
         sift_data_path = self.data_path+'/'+file[0]+'/sift_'+file[1]+'.pkl'
         with open(sift_data_path, 'rb') as f:
             sift_features = pickle.load(f)
@@ -74,7 +72,7 @@ class DataGenerator(Sequence):
         # Load annotations from file
         annotations_file_path = self.annotations_path+'/'+file[0]+'/'+file[1]+'_annotated.csv'
         annotations = pd.read_csv(annotations_file_path)
-        y = annotations.apply(lambda row: get_emotion_class(row['Valence'], row['Arousal']), axis=1).values
+        y = annotations.apply(lambda row: int(row['Severity'])-1, axis=1).values
         trim = y.shape[0] - y.shape[0]%self.nb_frames_per_sample
         y = y[:trim].reshape((-1, self.nb_frames_per_sample))
         y = to_categorical(y, num_classes=nb_emotions) 
@@ -85,8 +83,7 @@ class DataGenerator(Sequence):
         return vgg_sift_features, y
 
     def __data_generation(self, list_files_temp):
-        'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
-        
+        'Generates data containing batch_size samples'
         x = []
         y = []
         
@@ -102,12 +99,14 @@ class DataGenerator(Sequence):
     
 
 def leave_one_out_split(test_subj, files_list):
+    """Returns the train/test split for subject-wise leave-one-out.
+    """
     train_files_list = [(subj,f) for (subj,f) in files_list if subj!=test_subj]
     val_files_list = [(subj,f) for (subj,f) in files_list if subj==test_subj]
     
     return train_files_list, val_files_list
 
-def train_leave_one_out(create_model, data_path, annotations_path, files_list, files_per_batch, epochs, callbacks, save_best_model=False, save_each_split=True, model_path=None):
+def train_leave_one_out(create_model, data_path, annotations_path, files_list, files_per_batch, epochs, callbacks, class_weight=None, save_best_model=False, save_each_split=True, model_path=None):
     """Train a model using leave-one-out.
     """
     if save_best_model and not save_each_split:
@@ -129,20 +128,21 @@ def train_leave_one_out(create_model, data_path, annotations_path, files_list, f
             cur_callbacks.append(model_checkpoint)
         
         train_files_list, val_files_list = leave_one_out_split(subject, files_list)
-        training_generator = DataGenerator(train_files_list, files_per_batch=files_per_batch, data_path=data_path, annotations_path=annotations_path)
-        validation_generator = DataGenerator(val_files_list, files_per_batch=files_per_batch, data_path=data_path, annotations_path=annotations_path)
+        training_generator = DataGenerator(train_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, data_path=data_path, annotations_path=annotations_path)
+        validation_generator = DataGenerator(val_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, data_path=data_path, annotations_path=annotations_path)
         
         hist = model.fit_generator(generator=training_generator,
                                     validation_data=validation_generator,
                                     epochs=epochs,
+                                    class_weight=class_weight,
                                     use_multiprocessing=True,
                                     workers=6,
                                     callbacks=cur_callbacks if save_best_model else callbacks,
-                                    verbose=0)
+                                    verbose=1)
         histories.append(hist)
 
         # Save the val_acc of the best epoch
-        best_epoch = np.argmax(hist.history['val_loss'])
+        best_epoch = np.argmin(hist.history['val_loss'])
         best_val_loss = hist.history['val_loss'][best_epoch]
         best_val_acc = hist.history['val_acc'][best_epoch]
         val_accs.append(best_val_acc)
@@ -152,3 +152,19 @@ def train_leave_one_out(create_model, data_path, annotations_path, files_list, f
     print('Average validation accuracy : {:.6f}'.format(cross_val_acc))
 
     return model, histories
+
+def get_class_weight(files_list, annotations_path, mode='balanced'):
+    """Returns the class weights computed from the class distribution.
+    """
+    counts = [0]*nb_emotions
+    y = []
+    for subj, file in files_list:
+        annotations = pd.read_csv(annotations_path+'/'+subj+'/'+file+"_annotated.csv")
+        y_file = annotations.apply(lambda row: int(row['Severity'])-1, axis=1)
+        y = np.concatenate([y, y_file])
+
+    weights = compute_class_weight(mode, list(range(nb_emotions)), y)
+    class_weight = {}
+    for i, w in enumerate(weights):
+        class_weight[i] = w
+    return class_weight#, Counter(y)
