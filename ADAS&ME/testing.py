@@ -58,6 +58,47 @@ def evaluate_model(model_path, data_path, annotations_path, files_list, files_pe
     
     return y_pred, y_true
 
+def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, data_path, annotations_path, files_list, files_per_batch, nb_frames_per_sample=5, merge_weight=0.5):
+    y_pred = np.array([])
+    y_true = np.array([])
+    
+    subjects_list = sorted(list(set([subj for (subj,f) in files_list])))
+    for i, subject in enumerate(subjects_list):
+        print("Testing on {}...".format(subject))
+        
+        train_files_list, val_files_list = leave_one_out_split(subject, files_list)
+        tcnn_val_generator = DataGenerator(val_files_list, files_per_batch=files_per_batch, data_path=data_path, features='vgg-tcnn', annotations_path=annotations_path)
+        phrnn_val_generator = DataGenerator(val_files_list, files_per_batch=files_per_batch, data_path=data_path, features='sift-phrnn', annotations_path=annotations_path)
+        
+        # Load models of the current split 
+        cur_tcnn_model_path = tcnn_model_path[:-3]+'_'+subject+model_path[-3:]
+        cur_phrnn_model_path = phrnn_model_path[:-3]+'_'+subject+model_path[-3:]
+        tcnn_model = load_model(cur_tcnn_model_path)
+        phrnn_model = load_model(cur_phrnn_model_path)
+        
+        y_pred_tcnn = tcnn_model.predict_generator(generator=tcnn_val_generator)
+        y_pred_phrnn = tcnn_model.predict_generator(generator=tcnn_val_generator)
+        
+        cur_y_pred = merge_weight*y_pred_tcnn + (1-merge_weight)*y_pred_phrnn
+        cur_y_pred = np.argmax(cur_y_pred, axis=1)
+        y_pred = np.concatenate([y_pred, cur_y_pred])
+        
+        cur_y_true = []
+        for (s, file) in val_files_list:
+            annotations_file_path = annotations_path+'/'+s+'/'+file+'_annotated.csv'
+            file_y_true = get_labels_from_annotation(annotations_file_path, nb_frames_per_sample=5)
+            
+            if s is 'TS11_DRIVE' and file is '20180827_115840':
+                file_y_true = file_y_true[:14250//nb_frames_per_sample]
+            cur_y_true.append(file_y_true)
+        
+        cur_y_true = np.concatenate(cur_y_true)
+        y_true = np.concatenate([y_true, cur_y_true])
+        
+        print(y_pred.shape, y_true.shape)
+
+    #print_model_eval_metrics(y_pred, y_true)
+    return y_pred, y_true
 
 def print_model_eval_metrics(y_pred, y_true, average = 'macro'):
     acc = (y_true == y_pred).sum()/len(y_pred)

@@ -28,12 +28,12 @@ class CustomVerbose(Callback):
 
 class DataGenerator(Sequence):
     'Generates data for training on the ADAS&ME dataset'
-    def __init__(self, files_list, files_per_batch=1, dim=(224,224,3),
-                 data_path='data', annotations_path='ADAS&ME_data/annotated', nb_frames_per_sample=5):
+    def __init__(self, files_list, files_per_batch=1, features='sift-vgg', data_path='data',
+                 annotations_path='ADAS&ME_data/annotated', nb_frames_per_sample=5):
         'Initialization'
         self.files_list = files_list
         self.files_per_batch = files_per_batch
-        self.dim = dim
+        self.features = features
         self.data_path = data_path
         self.annotations_path = annotations_path
         self.nb_frames_per_sample = nb_frames_per_sample
@@ -54,20 +54,53 @@ class DataGenerator(Sequence):
     
     def load_data_from_file(self, file):
         'Loads the data from a the given file'
+        
+        nb_samples = None
         sift_data_path = self.data_path+'/'+file[0]+'/sift_'+file[1]+'.pkl'
-        with open(sift_data_path, 'rb') as f:
-            sift_features = pickle.load(f)
-        sift_features = sift_features.reshape(sift_features.shape[0], -1)
-
         vgg_data_path = self.data_path+'/'+file[0]+'/vggCustom_'+file[1]+'.pkl'
-        with open(vgg_data_path, 'rb') as f:
-            vgg_features = pickle.load(f)
+        vgg_tcnn_data_path = self.data_path+'/'+file[0]+'/vgg_tcnn/vgg_tcnn_'+file[1]+'.pkl'
+        
+        if self.features == 'vgg-sift' or self.features == 'sift-vgg':
+            with open(sift_data_path, 'rb') as f:
+                sift_features = pickle.load(f)
+            sift_features = sift_features.reshape(sift_features.shape[0], -1)
 
-        # Concatenate the VGG features with the SIFT features
-        vgg_sift_features = np.concatenate([vgg_features, sift_features], axis=1)
-        trim = vgg_sift_features.shape[0] - vgg_sift_features.shape[0]%self.nb_frames_per_sample
-        vgg_sift_features = vgg_sift_features[:trim]
-        vgg_sift_features = vgg_sift_features.reshape((-1, self.nb_frames_per_sample, vgg_sift_features.shape[1]))
+            with open(vgg_data_path, 'rb') as f:
+                vgg_features = pickle.load(f)
+
+            # Concatenate the VGG features with the SIFT features
+            vgg_sift_features = np.concatenate([vgg_features, sift_features], axis=1)
+            trim = vgg_sift_features.shape[0] - vgg_sift_features.shape[0]%self.nb_frames_per_sample
+            vgg_sift_features = vgg_sift_features[:trim]
+            x = vgg_sift_features.reshape((-1, self.nb_frames_per_sample, vgg_sift_features.shape[1]))
+            nb_samples = x.shape[0]
+            
+        elif self.features == 'sift-phrnn':
+            with open(sift_data_path, 'rb') as f:
+                sift_features = pickle.load(f)
+                
+            trim = sift_features.shape[0] - sift_features.shape[0]%self.nb_frames_per_sample
+            sift = sift_features[:trim]
+            sift = sift.reshape((-1, self.nb_frames_per_sample, 51, 128))
+            sift.shape
+
+            # Prepare the different landmarks clusters
+            eyebrows_landmarks = sift[:,:, eyebrows_mask].reshape((sift.shape[0], self.nb_frames_per_sample, -1))
+            nose_landmarks = sift[:,:, nose_mask].reshape((sift.shape[0], self.nb_frames_per_sample, -1))
+            eyes_landmarks = sift[:,:, eyes_mask].reshape((sift.shape[0], self.nb_frames_per_sample, -1))
+            inside_lip_landmarks = sift[:,:, inside_lip_mask].reshape((sift.shape[0], self.nb_frames_per_sample, -1))
+            outside_lip_landmarks = sift[:,:, outside_lip_mask].reshape((sift.shape[0], self.nb_frames_per_sample, -1))
+
+            x = [eyebrows_landmarks, nose_landmarks, eyes_landmarks, inside_lip_landmarks, outside_lip_landmarks]
+            nb_samples = x[0].shape[0]
+            
+        elif self.features == 'vgg-tcnn':
+            with open(vgg_tcnn_data_path, 'rb') as f:
+                vgg_tcnn_features = pickle.load(f)
+            x = vgg_tcnn_features
+            nb_samples = x.shape[0]
+        else:
+            raise ValueError('\'features\' parameter is invalid.')
         
         # Load annotations from file
         annotations_file_path = self.annotations_path+'/'+file[0]+'/'+file[1]+'_annotated.csv'
@@ -78,25 +111,27 @@ class DataGenerator(Sequence):
         y = to_categorical(y, num_classes=nb_emotions) 
         y = np.mean(y, axis=1)
         y = to_categorical(np.argmax(y, axis=1), num_classes=nb_emotions)
-        y = y[:vgg_sift_features.shape[0]]
+        y = y[:nb_samples]
         
-        return vgg_sift_features, y
+        return x, y
 
     def __data_generation(self, list_files_temp):
         'Generates data containing batch_size samples'
-        x = []
-        y = []
-        
-        for file in list_files_temp:
-            x_file, y_file = self.load_data_from_file(file)
-            x.append(x_file)
-            y.append(y_file)
-            
-        x = np.concatenate(x, axis=0)
-        y = np.concatenate(y, axis=0)
+        if self.features == 'sift-phrnn':
+            return self.load_data_from_file(list_files_temp[0])
+        else:
+            x = []
+            y = []
 
-        return x, y
-    
+            for file in list_files_temp:
+                x_file, y_file = self.load_data_from_file(file)
+                x.append(x_file)
+                y.append(y_file)
+
+            x = np.concatenate(x, axis=0)
+            y = np.concatenate(y, axis=0)
+
+            return x, y
 
 def leave_one_out_split(test_subj, files_list):
     """Returns the train/test split for subject-wise leave-one-out.
@@ -106,7 +141,7 @@ def leave_one_out_split(test_subj, files_list):
     
     return train_files_list, val_files_list
 
-def train_leave_one_out(create_model, data_path, annotations_path, files_list, files_per_batch, epochs, callbacks, class_weight=None, save_best_model=False, save_each_split=True, model_path=None):
+def train_leave_one_out(create_model, data_path, features, annotations_path, files_list, files_per_batch, epochs, callbacks, class_weight=None, save_best_model=False, save_each_split=True, model_path=None):
     """Train a model using leave-one-out.
     """
     if save_best_model and not save_each_split:
@@ -128,8 +163,8 @@ def train_leave_one_out(create_model, data_path, annotations_path, files_list, f
             cur_callbacks.append(model_checkpoint)
         
         train_files_list, val_files_list = leave_one_out_split(subject, files_list)
-        training_generator = DataGenerator(train_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, data_path=data_path, annotations_path=annotations_path)
-        validation_generator = DataGenerator(val_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, data_path=data_path, annotations_path=annotations_path)
+        training_generator = DataGenerator(train_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, features=features, data_path=data_path, annotations_path=annotations_path)
+        validation_generator = DataGenerator(val_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, features=features, data_path=data_path, annotations_path=annotations_path)
         
         hist = model.fit_generator(generator=training_generator,
                                     validation_data=validation_generator,
@@ -152,6 +187,7 @@ def train_leave_one_out(create_model, data_path, annotations_path, files_list, f
     print('Average validation accuracy : {:.6f}'.format(cross_val_acc))
 
     return model, histories
+
 
 def get_class_weight(files_list, annotations_path, mode='balanced'):
     """Returns the class weights computed from the class distribution.
