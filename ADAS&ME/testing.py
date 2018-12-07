@@ -71,15 +71,22 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, data_path, anno
         phrnn_val_generator = DataGenerator(val_files_list, files_per_batch=files_per_batch, data_path=data_path, features='sift-phrnn', annotations_path=annotations_path)
         
         # Load models of the current split 
-        cur_tcnn_model_path = tcnn_model_path[:-3]+'_'+subject+model_path[-3:]
-        cur_phrnn_model_path = phrnn_model_path[:-3]+'_'+subject+model_path[-3:]
-        tcnn_model = load_model(cur_tcnn_model_path)
-        phrnn_model = load_model(cur_phrnn_model_path)
+        if tcnn_model_path is not None:
+            cur_tcnn_model_path = tcnn_model_path[:-3]+'_'+subject+tcnn_model_path[-3:]
+            tcnn_model = load_model(cur_tcnn_model_path)
+            y_pred_tcnn = tcnn_model.predict_generator(generator=tcnn_val_generator)
+        if phrnn_model_path is not None:
+            cur_phrnn_model_path = phrnn_model_path[:-3]+'_'+subject+phrnn_model_path[-3:]
+            phrnn_model = load_model(cur_phrnn_model_path)
+            y_pred_phrnn = phrnn_model.predict_generator(generator=phrnn_val_generator)
         
-        y_pred_tcnn = tcnn_model.predict_generator(generator=tcnn_val_generator)
-        y_pred_phrnn = tcnn_model.predict_generator(generator=tcnn_val_generator)
+        if (tcnn_model_path is not None) and (phrnn_model_path is not None):
+            cur_y_pred = merge_weight*y_pred_tcnn + (1-merge_weight)*y_pred_phrnn
+        elif tcnn_model_path is None:
+            cur_y_pred = y_pred_phrnn
+        else:
+            cur_y_pred = y_pred_tcnn
         
-        cur_y_pred = merge_weight*y_pred_tcnn + (1-merge_weight)*y_pred_phrnn
         cur_y_pred = np.argmax(cur_y_pred, axis=1)
         y_pred = np.concatenate([y_pred, cur_y_pred])
         
@@ -99,7 +106,7 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, data_path, anno
 
     #print_model_eval_metrics(y_pred, y_true)
     return y_pred, y_true
-
+    
 def print_model_eval_metrics(y_pred, y_true, average = 'macro'):
     acc = (y_true == y_pred).sum()/len(y_pred)
 

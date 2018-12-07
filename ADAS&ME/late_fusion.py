@@ -115,7 +115,7 @@ print('Training PHRNN model...')
 epochs = 40
 phrnn_model_path = 'models/late_fusion/phrnn/phrnn1.h5'
 features = 'sift-phrnn'
-phrnn, histories = train_leave_one_out(create_phrnn_model(features_per_lm=128),
+phrnn, histories1 = train_leave_one_out(create_phrnn_model(features_per_lm=128),
                                        data_path,
                                        features,
                                        annotations_path,
@@ -127,9 +127,6 @@ phrnn, histories = train_leave_one_out(create_phrnn_model(features_per_lm=128),
                                        save_best_model=save_best_model, 
                                        model_path=phrnn_model_path)
 
-plot_histories(histories, 'PHRNN Model - ADAS&ME')
-
-
 #Start training TCNN
 print('Training TCNN model...')
 epochs = 10
@@ -137,7 +134,7 @@ tcnn_model_path = 'models/late_fusion/tcnn/tcnn1.h5'
 features = 'vgg-tcnn'
 pre_trained_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/ck-fer/models/tcnn/tcnn_split1.h5'
 
-tcnn_top, histories = train_leave_one_out(create_tcnn_top(pre_trained_model_path),
+tcnn_top, histories2 = train_leave_one_out(create_tcnn_top(pre_trained_model_path),
                                        data_path,
                                        features,
                                        annotations_path,
@@ -149,7 +146,9 @@ tcnn_top, histories = train_leave_one_out(create_tcnn_top(pre_trained_model_path
                                        save_best_model=save_best_model, 
                                        model_path=tcnn_model_path)
 
-plot_histories(histories, 'TCNN Model - ADAS&ME')
+
+plot_histories(histories1, 'PHRNN Model - ADAS&ME')
+plot_histories(histories2, 'TCNN Model - ADAS&ME')
 
 
 #### TESTING ####
