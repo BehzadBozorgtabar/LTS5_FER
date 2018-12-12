@@ -1,6 +1,7 @@
 import numpy as np
 import pickle
 import pandas as pd
+import os
 
 from keras.models import Model, Sequential, load_model
 from keras.layers import Input, Convolution2D, ZeroPadding2D, MaxPooling2D, Flatten, Dense, Dropout, Activation, TimeDistributed, SimpleRNN, Bidirectional, LSTM, BatchNormalization, GlobalAveragePooling2D, average, concatenate
@@ -25,6 +26,49 @@ class CustomVerbose(Callback):
     def on_epoch_end(self, epoch, dictionary):        
         print('  Epoch %d/%d'%(epoch+1, self.epochs), ''.join([' - %s: %.6f'%tup for tup in dictionary.items()]), end="\r")
 
+def get_file_annotations(annotations_path, file):
+    """Returns a dataframe containing all annotations for a given file.
+    """
+    annotations_file_path = annotations_path+'/'+file[0]+'/'+file[1]+'_annotated{}.csv'
+
+    if os.path.isfile(annotations_file_path.format('')) :
+        # if file contains less than 1000 frames, annotations are stored in a single csv file
+        annotations = pd.read_csv(annotations_file_path.format(''))
+    else:
+        # otherwise, stored by chunks of 1000
+        i = 1
+        annotations = []
+        while os.path.isfile(annotations_file_path.format(i)):
+            annot = pd.read_csv(annotations_file_path.format(i))
+            annotations.append(annot)
+            i += 1
+        annotations = pd.concat(annotations)
+
+    return annotations
+
+def get_labels_from_annotations(annotations, nb_frames_per_sample=5):
+    """Returns the (filtered) labels for the given file, 
+    as well as the mask applied during filtering.
+    """
+    y = annotations.apply(lambda row: int(row['Severity'])-1, axis=1).values
+
+    # group by 'nb_frames_per_sample' frames
+    trim = y.shape[0] - y.shape[0]%nb_frames_per_sample
+    y = y[:trim].reshape((-1, nb_frames_per_sample))
+
+    # Discard samples containing invalid annotation '-999'
+    mask1 = (y!=-999).all(axis=1)
+    y = y[mask1]
+
+    # Discard samples containing different emotions
+    mask2 = [len(set(s))<=1 for s in y]
+    y = y[mask2]
+    
+    # Take emotion of first frame
+    y = y[:,0]
+    
+    valid_mask = np.logical_and(mask1, np.array(mask2))
+    return y, valid_mask
 
 class DataGenerator(Sequence):
     'Generates data for training on the ADAS&ME dataset'
@@ -54,8 +98,9 @@ class DataGenerator(Sequence):
     
     def load_data_from_file(self, file):
         'Loads the data from a the given file'
+        annotations = get_file_annotations(annotations_path, file)
+        y, valid_mask = get_labels_from_annotations(annotations)
         
-        nb_samples = None
         sift_data_path = self.data_path+'/'+file[0]+'/sift_'+file[1]+'.pkl'
         vgg_data_path = self.data_path+'/'+file[0]+'/vggCustom_'+file[1]+'.pkl'
         vgg_tcnn_data_path = self.data_path+'/'+file[0]+'/vgg_tcnn/vgg_tcnn_'+file[1]+'.pkl'
@@ -73,7 +118,9 @@ class DataGenerator(Sequence):
             trim = vgg_sift_features.shape[0] - vgg_sift_features.shape[0]%self.nb_frames_per_sample
             vgg_sift_features = vgg_sift_features[:trim]
             x = vgg_sift_features.reshape((-1, self.nb_frames_per_sample, vgg_sift_features.shape[1]))
-            nb_samples = x.shape[0]
+            
+            # Filter out samples whose annotations are invalid
+            x = x[valid_mask]
             
         elif self.features == 'sift-phrnn':
             with open(sift_data_path, 'rb') as f:
@@ -92,26 +139,20 @@ class DataGenerator(Sequence):
             outside_lip_landmarks = sift[:,:, outside_lip_mask].reshape((sift.shape[0], self.nb_frames_per_sample, -1))
 
             x = [eyebrows_landmarks, nose_landmarks, eyes_landmarks, inside_lip_landmarks, outside_lip_landmarks]
-            nb_samples = x[0].shape[0]
             
+            # Filter out samples whose annotations are invalid
+            x = [xt[valid_mask] for xt in x]
+        
         elif self.features == 'vgg-tcnn':
             with open(vgg_tcnn_data_path, 'rb') as f:
                 vgg_tcnn_features = pickle.load(f)
             x = vgg_tcnn_features
-            nb_samples = x.shape[0]
+            
+            # Filter out samples whose annotations are invalid
+            x = x[valid_mask]
+            
         else:
             raise ValueError('\'features\' parameter is invalid.')
-        
-        # Load annotations from file
-        annotations_file_path = self.annotations_path+'/'+file[0]+'/'+file[1]+'_annotated.csv'
-        annotations = pd.read_csv(annotations_file_path)
-        y = annotations.apply(lambda row: int(row['Severity'])-1, axis=1).values
-        trim = y.shape[0] - y.shape[0]%self.nb_frames_per_sample
-        y = y[:trim].reshape((-1, self.nb_frames_per_sample))
-        y = to_categorical(y, num_classes=nb_emotions) 
-        y = np.mean(y, axis=1)
-        y = to_categorical(np.argmax(y, axis=1), num_classes=nb_emotions)
-        y = y[:nb_samples]
         
         return x, y
 

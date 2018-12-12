@@ -2,7 +2,7 @@ import numpy as np
 
 img_size = 224 # resize images to 224*224 px
 
-emotions = ['Neutral', 'Positive','Negative','Anxiety']
+emotions = ['Neutral', 'Positive','Frustration','Anxiety']
 nb_emotions = len(emotions)
 
 # Define the masks corresponding to each cluster of landmarks
