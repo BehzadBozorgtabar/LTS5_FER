@@ -7,19 +7,19 @@ from keras.utils.np_utils import to_categorical
 
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_curve, auc
 
-from training import leave_one_out_split, DataGenerator
+from training import leave_one_out_split, DataGenerator, get_labels_from_annotations, get_file_annotations
 from const import *
 
-def get_labels_from_annotation(annotations_file_path, nb_frames_per_sample):
-    # Load annotations from file
-    annotations = pd.read_csv(annotations_file_path)
-    y = annotations.apply(lambda row: int(row['Severity'])-1, axis=1).values
-    trim = y.shape[0] - y.shape[0]%nb_frames_per_sample
-    y = y[:trim].reshape((-1, nb_frames_per_sample))
-    y = to_categorical(y, num_classes=nb_emotions) 
-    y = np.mean(y, axis=1)
-    y = np.argmax(y, axis=1)
-    return y
+# def get_labels_from_annotation(annotations_file_path, nb_frames_per_sample):
+#     # Load annotations from file
+#     annotations = pd.read_csv(annotations_file_path)
+#     y = annotations.apply(lambda row: int(row['Severity'])-1, axis=1).values
+#     trim = y.shape[0] - y.shape[0]%nb_frames_per_sample
+#     y = y[:trim].reshape((-1, nb_frames_per_sample))
+#     y = to_categorical(y, num_classes=nb_emotions) 
+#     y = np.mean(y, axis=1)
+#     y = np.argmax(y, axis=1)
+#     return y
 
 def evaluate_model(model_path, data_path, annotations_path, files_list, files_per_batch, nb_frames_per_sample=5):
     y_pred = np.array([])
@@ -70,6 +70,19 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, data_path, anno
         tcnn_val_generator = DataGenerator(val_files_list, files_per_batch=files_per_batch, data_path=data_path, features='vgg-tcnn', annotations_path=annotations_path)
         phrnn_val_generator = DataGenerator(val_files_list, files_per_batch=files_per_batch, data_path=data_path, features='sift-phrnn', annotations_path=annotations_path)
         
+        # Get the true labels
+        cur_y_true = []
+        for (s, file) in val_files_list:
+            annotations = get_file_annotations(annotations_path, (s, file))
+            file_y_true, valid_mask = get_labels_from_annotations(annotations)
+            
+            if s is 'TS11_DRIVE' and file is '20180827_115840':
+                file_y_true = file_y_true[:14250//nb_frames_per_sample]
+            cur_y_true.append(file_y_true)
+        
+        cur_y_true = np.concatenate(cur_y_true)
+        y_true = np.concatenate([y_true, cur_y_true])
+
         # Load models of the current split 
         if tcnn_model_path is not None:
             cur_tcnn_model_path = tcnn_model_path[:-3]+'_'+subject+tcnn_model_path[-3:]
@@ -80,6 +93,7 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, data_path, anno
             phrnn_model = load_model(cur_phrnn_model_path)
             y_pred_phrnn = phrnn_model.predict_generator(generator=phrnn_val_generator)
         
+        # Get the predicted labels
         if (tcnn_model_path is not None) and (phrnn_model_path is not None):
             cur_y_pred = merge_weight*y_pred_tcnn + (1-merge_weight)*y_pred_phrnn
         elif tcnn_model_path is None:
@@ -89,18 +103,6 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, data_path, anno
         
         cur_y_pred = np.argmax(cur_y_pred, axis=1)
         y_pred = np.concatenate([y_pred, cur_y_pred])
-        
-        cur_y_true = []
-        for (s, file) in val_files_list:
-            annotations_file_path = annotations_path+'/'+s+'/'+file+'_annotated.csv'
-            file_y_true = get_labels_from_annotation(annotations_file_path, nb_frames_per_sample=5)
-            
-            if s is 'TS11_DRIVE' and file is '20180827_115840':
-                file_y_true = file_y_true[:14250//nb_frames_per_sample]
-            cur_y_true.append(file_y_true)
-        
-        cur_y_true = np.concatenate(cur_y_true)
-        y_true = np.concatenate([y_true, cur_y_true])
         
         print(y_pred.shape, y_true.shape)
 

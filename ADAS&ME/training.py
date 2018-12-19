@@ -2,6 +2,8 @@ import numpy as np
 import pickle
 import pandas as pd
 import os
+from collections import Counter
+import math
 
 from keras.models import Model, Sequential, load_model
 from keras.layers import Input, Convolution2D, ZeroPadding2D, MaxPooling2D, Flatten, Dense, Dropout, Activation, TimeDistributed, SimpleRNN, Bidirectional, LSTM, BatchNormalization, GlobalAveragePooling2D, average, concatenate
@@ -26,6 +28,23 @@ class CustomVerbose(Callback):
     def on_epoch_end(self, epoch, dictionary):        
         print('  Epoch %d/%d'%(epoch+1, self.epochs), ''.join([' - %s: %.6f'%tup for tup in dictionary.items()]), end="\r")
 
+def normalize_face_landmarks(face_landmarks):
+    """Normalize facial landmarks by subtracting the coordinates corresponding
+       to the nose, and dividing by the standard deviation.
+    """
+    face_landmarks_norm = np.zeros(face_landmarks.shape)
+    
+    for (i, lm) in enumerate(face_landmarks):
+        face_landmarks_norm[i] = lm - lm[nose_center_idx]
+            
+    std_x = np.std(face_landmarks_norm[:,:,0].reshape((-1,)))
+    std_y = np.std(face_landmarks_norm[:,:,1].reshape((-1,)))
+    
+    face_landmarks_norm[:,:,0] = np.multiply(face_landmarks_norm[:,:,0], 1./std_x)
+    face_landmarks_norm[:,:,1] = np.multiply(face_landmarks_norm[:,:,1], 1./std_y)
+    
+    return face_landmarks_norm
+
 def get_file_annotations(annotations_path, file):
     """Returns a dataframe containing all annotations for a given file.
     """
@@ -42,7 +61,7 @@ def get_file_annotations(annotations_path, file):
             annot = pd.read_csv(annotations_file_path.format(i))
             annotations.append(annot)
             i += 1
-        annotations = pd.concat(annotations)
+        annotations = pd.concat(annotations, sort=True)
 
     return annotations
 
@@ -57,23 +76,27 @@ def get_labels_from_annotations(annotations, nb_frames_per_sample=5):
     y = y[:trim].reshape((-1, nb_frames_per_sample))
 
     # Discard samples containing invalid annotation '-999'
-    mask1 = (y!=-999).all(axis=1)
-    y = y[mask1]
+    mask1 = (y>=0).all(axis=1)
 
     # Discard samples containing different emotions
-    mask2 = [len(set(s))<=1 for s in y]
-    y = y[mask2]
+    mask2 = np.array([len(set(s))<=1 for s in y])
+    
+    # Discard samples that contain frames from different cameras
+    camera_indices = annotations.apply(lambda row: int(row['CameraIndex']), axis=1).values
+    camera_indices = camera_indices[:trim].reshape((-1, nb_frames_per_sample))
+    mask3 = np.array([len(set(i))<=1 for i in camera_indices])
+    
+    valid_mask = np.logical_and(mask1, np.logical_and(mask2, mask3))
+    y = y[valid_mask]
     
     # Take emotion of first frame
     y = y[:,0]
     
-    valid_mask = np.logical_and(mask1, np.array(mask2))
     return y, valid_mask
-
 class DataGenerator(Sequence):
     'Generates data for training on the ADAS&ME dataset'
     def __init__(self, files_list, files_per_batch=1, features='sift-vgg', data_path='data',
-                 annotations_path='ADAS&ME_data/annotated', nb_frames_per_sample=5):
+                 annotations_path='ADAS&ME_data/annotated', nb_frames_per_sample=5, shuffle=True):
         'Initialization'
         self.files_list = files_list
         self.files_per_batch = files_per_batch
@@ -81,6 +104,8 @@ class DataGenerator(Sequence):
         self.data_path = data_path
         self.annotations_path = annotations_path
         self.nb_frames_per_sample = nb_frames_per_sample
+        self.shuffle=shuffle
+        self.on_epoch_end()
 
     def __len__(self):
         'Denotes the number of batches per epoch'
@@ -89,20 +114,31 @@ class DataGenerator(Sequence):
     def __getitem__(self, index):
         'Generate one batch of data'
         # Generate indexes of the batch
-        files = self.files_list[index*self.files_per_batch:(index+1)*self.files_per_batch]
+        indexes = self.files_indexes[index*self.files_per_batch:(index+1)*self.files_per_batch]
+
+        # Generate indexes of the batch
+        files = [self.files_list[i] for i in indexes]
 
         # Generate data
         X, y = self.__data_generation(files)
 
         return X, y
+
+    def on_epoch_end(self):
+        'Updates indexes after each epoch'
+        self.files_indexes = np.arange(len(self.files_list))
+        if self.shuffle == True:
+            np.random.shuffle(self.files_indexes)
     
     def load_data_from_file(self, file):
         'Loads the data from a the given file'
-        annotations = get_file_annotations(annotations_path, file)
+        annotations = get_file_annotations(self.annotations_path, file)
         y, valid_mask = get_labels_from_annotations(annotations)
+        y = to_categorical(y, num_classes=nb_emotions) 
         
-        sift_data_path = self.data_path+'/'+file[0]+'/sift_'+file[1]+'.pkl'
-        vgg_data_path = self.data_path+'/'+file[0]+'/vggCustom_'+file[1]+'.pkl'
+        sift_data_path = self.data_path+'/'+file[0]+'/sift/sift_'+file[1]+'.pkl'
+        landmarks_data_path = self.data_path+'/'+file[0]+'/landmarks/landmarks_'+file[1]+'.pkl'
+        vgg_data_path = self.data_path+'/'+file[0]+'/vgg/vggCustom_'+file[1]+'.pkl'
         vgg_tcnn_data_path = self.data_path+'/'+file[0]+'/vgg_tcnn/vgg_tcnn_'+file[1]+'.pkl'
         
         if self.features == 'vgg-sift' or self.features == 'sift-vgg':
@@ -129,7 +165,6 @@ class DataGenerator(Sequence):
             trim = sift_features.shape[0] - sift_features.shape[0]%self.nb_frames_per_sample
             sift = sift_features[:trim]
             sift = sift.reshape((-1, self.nb_frames_per_sample, 51, 128))
-            sift.shape
 
             # Prepare the different landmarks clusters
             eyebrows_landmarks = sift[:,:, eyebrows_mask].reshape((sift.shape[0], self.nb_frames_per_sample, -1))
@@ -142,7 +177,29 @@ class DataGenerator(Sequence):
             
             # Filter out samples whose annotations are invalid
             x = [xt[valid_mask] for xt in x]
-        
+            
+        elif self.features == 'landmarks-phrnn':
+            with open(landmarks_data_path, 'rb') as f:
+                landmarks = pickle.load(f)
+
+            landmarks_norm = normalize_face_landmarks(landmarks)
+
+            trim = landmarks_norm.shape[0] - landmarks_norm.shape[0]%self.nb_frames_per_sample
+            lm = landmarks_norm[:trim]
+            lm = lm.reshape((-1, self.nb_frames_per_sample, 51, 2))
+
+            # Prepare the different landmarks clusters
+            eyebrows_landmarks = lm[:,:, eyebrows_mask].reshape((lm.shape[0], self.nb_frames_per_sample, -1))
+            nose_landmarks = lm[:,:, nose_mask].reshape((lm.shape[0], self.nb_frames_per_sample, -1))
+            eyes_landmarks = lm[:,:, eyes_mask].reshape((lm.shape[0], self.nb_frames_per_sample, -1))
+            inside_lip_landmarks = lm[:,:, inside_lip_mask].reshape((lm.shape[0], self.nb_frames_per_sample, -1))
+            outside_lip_landmarks = lm[:,:, outside_lip_mask].reshape((lm.shape[0], self.nb_frames_per_sample, -1))
+
+            x = [eyebrows_landmarks, nose_landmarks, eyes_landmarks, inside_lip_landmarks, outside_lip_landmarks]
+            
+            # Filter out samples whose annotations are invalid
+            x = [xt[valid_mask] for xt in x]
+
         elif self.features == 'vgg-tcnn':
             with open(vgg_tcnn_data_path, 'rb') as f:
                 vgg_tcnn_features = pickle.load(f)
@@ -158,7 +215,7 @@ class DataGenerator(Sequence):
 
     def __data_generation(self, list_files_temp):
         'Generates data containing batch_size samples'
-        if self.features == 'sift-phrnn':
+        if 'phrnn' in self.features:
             return self.load_data_from_file(list_files_temp[0])
         else:
             x = []
@@ -173,7 +230,7 @@ class DataGenerator(Sequence):
             y = np.concatenate(y, axis=0)
 
             return x, y
-
+    
 def leave_one_out_split(test_subj, files_list):
     """Returns the train/test split for subject-wise leave-one-out.
     """
@@ -230,18 +287,96 @@ def train_leave_one_out(create_model, data_path, features, annotations_path, fil
     return model, histories
 
 
-def get_class_weight(files_list, annotations_path, mode='balanced'):
+def get_class_weight(files_list, annotations_path, mode='balanced', power=1):
     """Returns the class weights computed from the class distribution.
     """
     counts = [0]*nb_emotions
     y = []
     for subj, file in files_list:
-        annotations = pd.read_csv(annotations_path+'/'+subj+'/'+file+"_annotated.csv")
-        y_file = annotations.apply(lambda row: int(row['Severity'])-1, axis=1)
+        #annotations = pd.read_csv(annotations_path+'/'+subj+'/'+file+"_annotated.csv")
+        annotations = get_file_annotations(annotations_path, (subj, file))
+        y_file, _ = get_labels_from_annotations(annotations)
         y = np.concatenate([y, y_file])
-
+        
+    print("Class distribution : "+str(Counter(y)))
+    
     weights = compute_class_weight(mode, list(range(nb_emotions)), y)
+    weights = [math.pow(w, power) for w in weights]
+
     class_weight = {}
     for i, w in enumerate(weights):
         class_weight[i] = w
-    return class_weight#, Counter(y)
+    return class_weight
+
+def create_tcnn_top(pre_trained_model_path=None):
+    """Create the top of the tcnn with fully connected layers.
+    """
+    def inner():
+        input_shape=(7, 7, 512)
+
+        tcnn_top = Sequential()
+        tcnn_top.add(Convolution2D(1024, (7, 7), activation='relu', name='fc6', input_shape=input_shape))
+        tcnn_top.add(Dropout(0.5))
+        tcnn_top.add(Convolution2D(512, (1, 1), activation='relu', name='fc7b'))
+        tcnn_top.add(Dropout(0.5))
+        tcnn_top.add(Convolution2D(nb_emotions, (1, 1), name='fc8b'))
+        tcnn_top.add(Flatten())
+        tcnn_top.add(Activation('softmax'))
+
+        if pre_trained_model_path is not None:
+            tcnn_top.load_weights(pre_trained_model_path, by_name=True)
+            tcnn_top.layers[0].trainable = False
+        
+        tcnn_top.compile(loss='categorical_crossentropy',
+                     optimizer=optimizers.Adam(),
+                     metrics=['accuracy'])
+        
+        return tcnn_top
+    return inner
+
+def create_phrnn_model(features_per_lm):
+    def phrnn_creator():
+        # Define inputs
+        eyebrows_input = Input(shape=(5, 10*features_per_lm), name='eyebrows_input')
+        nose_input = Input(shape=(5, 9*features_per_lm), name='nose_input')
+        eyes_input = Input(shape=(5, 12*features_per_lm), name='eyes_input')
+        out_lip_input = Input(shape=(5, 12*features_per_lm), name='out_lip_input')
+        in_lip_input = Input(shape=(5, 8*features_per_lm), name='in_lip_input')
+
+        # First level of BRNNs
+        eyebrows = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_1')(eyebrows_input)
+        nose = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_2')(nose_input)
+        eyes = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_3')(eyes_input)
+        in_lip = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_4')(in_lip_input)
+        out_lip = Bidirectional(SimpleRNN(40, return_sequences=True), name='BRNN40_5')(out_lip_input)
+
+        eyebrows_nose = concatenate([eyebrows, nose])
+        eyes_in_lip = concatenate([eyes, in_lip])
+
+        # Second level of BRNNs
+        eyebrows_nose = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_1')(eyebrows_nose)
+        eyes_in_lip = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_2')(eyes_in_lip)
+        out_lip = Bidirectional(SimpleRNN(64, return_sequences=True), name='BRNN64_3')(out_lip)
+
+        eyes_lips = concatenate([eyes_in_lip, out_lip])
+
+        # Third level of BRNNs
+        eyebrows_nose = Bidirectional(SimpleRNN(90, return_sequences=True), name='BRNN90_1')(eyebrows_nose)
+        eyes_lips = Bidirectional(SimpleRNN(90, return_sequences=True), name='BRNN90_2')(eyes_lips)
+
+        output = concatenate([eyebrows_nose, eyes_lips])
+
+        # Final BLSTM and fully-connected layers
+        output = Bidirectional(LSTM(80), name='BLSTM')(output)
+        output = Dense(128, activation="relu", name='fc1')(output)
+        output = Dense(nb_emotions, activation="softmax", name='fc2')(output)
+
+        inputs = [eyebrows_input, nose_input, eyes_input, in_lip_input, out_lip_input]
+        phrnn = Model(inputs=inputs, outputs=output)
+
+        phrnn.compile(loss='categorical_crossentropy',
+                      optimizer=optimizers.Adam(lr=0.01),
+                      metrics=['accuracy'])
+        return phrnn
+    
+    return phrnn_creator

@@ -1,12 +1,10 @@
 import numpy as np
-
 from imutils import face_utils
 import dlib
 import cv2
 
-face_predictor_path = '/Volumes/External/ProjectData/data/shape_predictor_68_face_landmarks.dat'
+from const import *
 
- 
 def detect_face_landmarks(gray_img, detector, predictor):
     """Detects 51 facial landmarks (eyes, eyebrows, nose, mouth) using dlib.using
     """
@@ -14,11 +12,11 @@ def detect_face_landmarks(gray_img, detector, predictor):
     rects = detector(gray_img, 1)
     
     if len(rects)==0:
-        # if no face was detected, we set the face rectangle to the entire image
-        rect = dlib.rectangle(0,0,gray_img.shape[0],gray_img.shape[1])
+        # if no face was detected, we set the rectangle arbitrarily
+        p = 24
+        rect = dlib.rectangle(p,p,gray_img.shape[0]-p,gray_img.shape[1]-p)
     else:
         rect = rects[0]
-    
 
     # determine the facial landmarks for the face region
     face_landmarks = face_utils.shape_to_np(predictor(gray_img, rect))
@@ -26,6 +24,31 @@ def detect_face_landmarks(gray_img, detector, predictor):
     
     return face_landmarks
 
+def extract_all_face_landmarks(x_data, verbose=True):
+    """Computes all the facial landmarks of every frame in the given dataset.
+    """
+    # Initialize dlib's face detector and create the facial landmark predictor
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(face_predictor_path)
+
+    x_int = np.uint8(np.multiply(x_data, 256))
+    face_landmarks = []
+
+    for i, frame in enumerate(x_int):
+        if verbose: print("Computing facial landmarks... {:.1f}%".format(100.*(i+1)/x_int.shape[0]), end='\r')
+        if len(frame.shape)==2:
+            gray=frame
+        else:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        lm = detect_face_landmarks(gray, detector, predictor)
+        face_landmarks.append(lm)
+    
+    if verbose: print('')
+    face_landmarks = np.array(face_landmarks)
+    
+    return face_landmarks
+ 
 def compute_sift(img, detector, predictor):
     """Computes the SIFT descriptors of each of the facial landmarks of the given image.
     """
@@ -45,7 +68,7 @@ def compute_sift(img, detector, predictor):
     
     return sift_descriptors
 
-def extract_all_sift_features(x_data):
+def extract_all_sift_features(x_data, verbose=True):
     """Extracts all the SIFT descriptors of the facial landmarks 
        of every frame in the given dataset.
     """
@@ -58,7 +81,7 @@ def extract_all_sift_features(x_data):
     
     nb_f = len(x_data)
     for i, frame in enumerate(x_data):
-        print(' Frame {}/{}'.format(i+1, nb_f), end='\r')
+        if verbose: print(' Frame {}/{}'.format(i+1, nb_f), end='\r')
         sift = compute_sift(frame, detector, predictor)
         sift_features.append(sift)
             
@@ -66,6 +89,6 @@ def extract_all_sift_features(x_data):
     shp = sift_features.shape
     sift_features = sift_features.reshape((shp[0], shp[1], -1))
     sift_features = np.multiply(sift_features, 1./255)
-    print('')
+    if verbose: print('')
     
     return sift_features

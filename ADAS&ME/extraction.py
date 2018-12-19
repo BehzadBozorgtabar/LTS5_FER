@@ -13,6 +13,8 @@ from keras.models import Model, Sequential, load_model
 from keras.layers import Input, Reshape, ZeroPadding2D, MaxPooling2D, Flatten, Dropout, Activation, concatenate, average
 from keras.layers import Dense, Convolution2D, SimpleRNN, LSTM, Bidirectional
 
+from sift import extract_all_face_landmarks
+from training import get_file_annotations, get_labels_from_annotations
 from const import *
 
 ### Extracting data from SMB files ###
@@ -99,17 +101,16 @@ def read_image(file, image_width, image_height):
 
     return image
 
-
-
-def extract_smb_frames(smb_data_path, smb_files_list, face_rect_scale=1.25, dest_folder=None, align_resize=True, img_resize=224, nb_frames=None):
+def extract_smb_frames(smb_data_path, smb_files_list, face_rect_scale=1.25, dest_folder=None, align_resize=True, img_resize=224, nb_frames=None, stop_at_frame_nb=[]):
     """Extract the image frames from the specified smb files. 
        Face alignment and resizing is also done to prepare for training.
     """
+
     if dest_folder is not None and not os.path.exists(dest_folder):
         os.makedirs(dest_folder)
     
     frames = []
-    for smb_file in smb_files_list:
+    for file_idx, smb_file in enumerate(smb_files_list):
         smb_file_path = smb_data_path+'/'+smb_file+'.smb'
         file = open(smb_file_path, "rb")
         SMB_HEADER_SIZE = 20
@@ -123,7 +124,7 @@ def extract_smb_frames(smb_data_path, smb_files_list, face_rect_scale=1.25, dest
             file.seek(current_position)
 
             while True:
-                print("Extracting from {} - frame {}".format(smb_file+'.smb', i+1), end='\r') 
+                
 
                 # Read SMB header
                 smb_header = file.read(SMB_HEADER_SIZE)
@@ -132,6 +133,8 @@ def extract_smb_frames(smb_data_path, smb_files_list, face_rect_scale=1.25, dest
 
                 # Read ROI data
                 camera_index, frame_number, time_stamp, roi_left, roi_top, roi_width, roi_height, camera_angle = read_roi_data(file)
+
+                print("Extracting from {} - frame nb {} - frame id {}".format(smb_file+'.smb', i+1, frame_number), end='\r') 
 
                 # Read image
                 file.seek(current_position + SMB_HEADER_SIZE)
@@ -165,6 +168,8 @@ def extract_smb_frames(smb_data_path, smb_files_list, face_rect_scale=1.25, dest
                 i += 1
                 if nb_frames is not None and (i >= nb_frames):
                     break
+                if len(stop_at_frame_nb)>0 and stop_at_frame_nb[file_idx] is not None and (stop_at_frame_nb[file_idx] == frame_number):
+                    break
         finally:
             file.close()
             print('')
@@ -175,21 +180,18 @@ def extract_smb_frames(smb_data_path, smb_files_list, face_rect_scale=1.25, dest
 
 ### Extract data from preprocessed frames ###
 
-def extract_data(frames_path, annotations_path):
+def extract_data(frames_path):
     """Extracts trainingand target data (x & y) from the video frames.
     
     Keyword arguments:
     frames_path -- path of the folder in which the selected frames should be stored
     """
     x = []
-    
-    annotations = pd.read_csv(annotations_path)
-    y = annotations.apply(lambda row: int(row['Severity'])-1, axis=1).values
 
     frames = sorted([f for f in os.listdir(frames_path) if f.endswith('.png')])
     frames_ref = []
 
-    for (i, frame) in enumerate(frames[:1000]):
+    for (i, frame) in enumerate(frames):
         img = imread(frames_path+"/"+frame)
 
         # convert to rgb if greyscale
@@ -200,9 +202,23 @@ def extract_data(frames_path, annotations_path):
         frames_ref.append(int(frame[:-4]))
             
     x = np.multiply(np.array(x), 1/256)
-    y = np.asarray(y[:x.shape[0]])
     
-    return x, y, np.asarray(frames_ref)
+    return x, np.asarray(frames_ref)
+
+def extract_pickle_data(pickle_file_path):
+    with open(pickle_file_path, 'rb') as f:
+        x, roi =  pickle.load(f)
+        
+    # convert frames to rgb if grayscale
+    if len(x[0].shape)==2:
+        x = np.stack((x,)*3, axis=-1)
+        
+    labels = [r['Severity']-1 for r in roi]
+    camera_idx = [r['CameraIndex'] for r in roi]
+    frames_idx = [r['FrameNumber'] for r in roi]
+    
+    x = np.multiply(np.array(x), 1/256)
+    return x, labels, frames_idx
 
 def create_vgg_extractor(model_path, output_layer='fc6'):
     """Loads the given VGG model and set the given layer as output
@@ -219,53 +235,118 @@ def create_vgg_extractor(model_path, output_layer='fc6'):
     
     return vgg_fc
 
-def extract_sift_vgg(sift_extractor, vgg_extractor, frames_path, annotations_path, smb_files_list, dest_folder):
+def extract_sift(sift_extractor, subj_data_path, dest_folder, verbose=True):
     """Extract and save vgg and sift features from the frames.
     """
-    for smb_file in smb_files_list:
-        if not os.path.exists(dest_folder):
-            os.makedirs(dest_folder)
+    pickle_files = sorted([f for f in os.listdir(subj_data_path) if f.endswith('.pkl')])
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    for file in pickle_files:
+        if verbose: print('Extracting from '+file+'...')
+        pickle_data_path_full = subj_data_path+'/'+file
+        x, _ = extract_pickle_data(pickle_data_path_full)
         
-        print('Extracting from '+smb_file+'...')
-        frames_path_full = frames_path+'/'+smb_file
-        annotations_path_full = annotations_path+'/'+smb_file+'_annotated.csv'
-        x, _, _ = extract_data(frames_path_full, annotations_path_full)
-        
-        print(' SIFT features...')
+        if verbose: print(' SIFT features...')
         sift_features = sift_extractor(x)
-        with open('{}/sift_{}.pkl'.format(dest_folder, smb_file), 'wb') as f:
+        print(" "+str(sift_features.shape))
+        
+        dest = dest_folder+'/sift'
+        if not os.path.exists(dest):
+            os.makedirs(dest)
+
+        with open('{}/sift_{}.pkl'.format(dest, file[:-4]), 'wb') as f:
             pickle.dump(sift_features, f)
         sift_features = None
+        x = None
+
+def extract_sift_vgg(sift_extractor, vgg_extractor, subj_data_path, dest_folder, verbose=True):
+    """Extract and save sift features from the frames.
+    """
+    pickle_files = sorted([f for f in os.listdir(subj_data_path) if f.endswith('.pkl')])
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    for file in pickle_files:
+        if verbose: print('Extracting from '+file+'...')
+        pickle_data_path_full = subj_data_path+'/'+file
+        x, _ = extract_pickle_data(pickle_data_path_full)
         
-        print(' VGG features...')
+        if verbose: print(' SIFT features...')
+        sift_features = sift_extractor(x)
+        print(" "+str(sift_features.shape))
+        
+        dest = dest_folder+'/sift'
+        if not os.path.exists(dest):
+            os.makedirs(dest)
+
+        with open('{}/sift_{}.pkl'.format(dest, file[:-4]), 'wb') as f:
+            pickle.dump(sift_features, f)
+        sift_features = None
+
+        if verbose: print(' VGG features...')
         vgg_features = vgg_extractor(x)
-        with open('{}/vggCustom_{}.pkl'.format(dest_folder, smb_file), 'wb') as f:
+
+        dest = dest_folder+'/vgg'
+        if not os.path.exists(dest):
+            os.makedirs(dest)
+
+        with open('{}/vggCustom_{}.pkl'.format(dest_folder, file), 'wb') as f:
             pickle.dump(vgg_features, f)
         vgg_features = None
         x = None
 
-def extract_vgg_tcnn(vgg_predictor, nb_frames_per_sample, frames_path, annotations_path, smb_files_list, dest_folder):
+def extract_facial_landmarks(subj_data_path, dest_folder, verbose=True):
+    """Extract and save facial landmarks from the frames.
+    """
+    pickle_files = sorted([f for f in os.listdir(subj_data_path) if f.endswith('.pkl')])
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    for file in pickle_files:
+        if verbose: print('Extracting from '+file+'...')
+        pickle_data_path_full = subj_data_path+'/'+file
+        x, _ = extract_pickle_data(pickle_data_path_full)
+        
+        if verbose: print(' Facial landmarks features...')
+        landmarks = extract_all_face_landmarks(x)
+        print(" "+str(landmarks.shape))
+
+        dest = dest_folder+'/landmarks'
+        if not os.path.exists(dest):
+            os.makedirs(dest)
+
+        with open('{}/landmarks_{}.pkl'.format(dest, file[:-4]), 'wb') as f:
+            pickle.dump(landmarks, f)
+        landmarks = None
+        x = None
+
+def extract_vgg_tcnn(vgg_predictor, nb_frames_per_sample, subj_data_path, dest_folder, verbose=True):
     """Extract VGG-TCNN features from the frames.
     """
-    for smb_file in smb_files_list:        
-        print('Extracting from '+smb_file+'...')
-        frames_path_full = frames_path+'/'+smb_file
-        annotations_path_full = annotations_path+'/'+smb_file+'_annotated.csv'
-        x, _, _ = extract_data(frames_path_full, annotations_path_full)
-        
+    pickle_files = sorted([f for f in os.listdir(subj_data_path) if f.endswith('.pkl')])
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    for file in pickle_files:
+        if verbose: print('Extracting from '+file+'...')
+        pickle_data_path_full = subj_data_path+'/'+file
+        x, _ = extract_pickle_data(pickle_data_path_full)
+
         # Group by sequences of 'nb_frames_per_sample' frames
         trim = x.shape[0] - x.shape[0]%nb_frames_per_sample
         x = x[:trim]
         x = x.reshape((-1, nb_frames_per_sample, img_size, img_size, 3))
         
-        print(' Computing VGG-TCNN features...')
+        if verbose: print(' Computing VGG-TCNN features...')
         vgg_tcnn_features = vgg_predictor([x[:,i] for i in range(nb_frames_per_sample)])
+        print(" "+str(vgg_tcnn_features.shape))
         
         dest = dest_folder+'/vgg_tcnn'
         if not os.path.exists(dest):
             os.makedirs(dest)
             
-        with open('{}/vgg_tcnn_{}.pkl'.format(dest, smb_file), 'wb') as f:
+        with open('{}/vgg_tcnn_{}.pkl'.format(dest, file[:-4]), 'wb') as f:
             pickle.dump(vgg_tcnn_features, f)
         vgg_tcnn_features = None
         x = None
