@@ -245,7 +245,7 @@ def extract_sift(sift_extractor, subj_data_path, dest_folder, verbose=True):
     for file in pickle_files:
         if verbose: print('Extracting from '+file+'...')
         pickle_data_path_full = subj_data_path+'/'+file
-        x, _ = extract_pickle_data(pickle_data_path_full)
+        x, _, _ = extract_pickle_data(pickle_data_path_full)
         
         if verbose: print(' SIFT features...')
         sift_features = sift_extractor(x)
@@ -270,7 +270,7 @@ def extract_sift_vgg(sift_extractor, vgg_extractor, subj_data_path, dest_folder,
     for file in pickle_files:
         if verbose: print('Extracting from '+file+'...')
         pickle_data_path_full = subj_data_path+'/'+file
-        x, _ = extract_pickle_data(pickle_data_path_full)
+        x, _, _ = extract_pickle_data(pickle_data_path_full)
         
         if verbose: print(' SIFT features...')
         sift_features = sift_extractor(x)
@@ -306,7 +306,7 @@ def extract_facial_landmarks(subj_data_path, dest_folder, verbose=True):
     for file in pickle_files:
         if verbose: print('Extracting from '+file+'...')
         pickle_data_path_full = subj_data_path+'/'+file
-        x, _ = extract_pickle_data(pickle_data_path_full)
+        x, _, _ = extract_pickle_data(pickle_data_path_full)
         
         if verbose: print(' Facial landmarks features...')
         landmarks = extract_all_face_landmarks(x)
@@ -331,7 +331,7 @@ def extract_vgg_tcnn(vgg_predictor, nb_frames_per_sample, subj_data_path, dest_f
     for file in pickle_files:
         if verbose: print('Extracting from '+file+'...')
         pickle_data_path_full = subj_data_path+'/'+file
-        x, _ = extract_pickle_data(pickle_data_path_full)
+        x, _, _ = extract_pickle_data(pickle_data_path_full)
 
         # Group by sequences of 'nb_frames_per_sample' frames
         trim = x.shape[0] - x.shape[0]%nb_frames_per_sample

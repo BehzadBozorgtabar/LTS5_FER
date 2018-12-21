@@ -14,21 +14,12 @@ from const import *
 # annotations_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/annotated'
 vggCustom_weights_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/customised_VGG.h5'
 
-frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data'
+frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data3'
 
 
 # Extract frames from smb files
 
-subjects = ['TS7_DRIVE', 'TS9_DRIVE', 'UC_B1', 'UC_B2', 'UC_B4', 'UC_B5','VP03', 'VP17', 'VP18']
-smb_files = [['20180829_114712'],
-             ['20180828_143018'],
-             ['20180814_101543'],#UC_B1
-             ['20181121_162205'],
-             ['20181121_163847'],
-             ['20181121_165322'],
-             ['20180822_162114'],
-             ['20180823_095005'],
-             ['20180823_095958']]
+subjects = ['TS7_DRIVE', 'TS9_DRIVE', 'UC_B1', 'UC_B2', 'UC_B3', 'UC_B4', 'UC_B5','VP03', 'VP17', 'VP18']
 
 # for i, subject in enumerate(subjects):
 #     print(subject)
@@ -53,6 +44,7 @@ smb_files = [['20180829_114712'],
 # extract_sift_vgg(extract_all_sift_features, vgg_fc6.predict, subj_frames_path, subj_annotations_path, smb_files_list, dest_folder)
 
 # Extract facial landmarks
+
 print('Facial Landmarks')
 dest_folder = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
 

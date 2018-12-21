@@ -23,89 +23,93 @@ from const import *
 
 #### TRAINING ####
 
+
+frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data3'
 data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
-annotations_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/annotated'
-files_list = FILES_LIST
+
+SUBJECTS = ['TS7_DRIVE', 'TS9_DRIVE', 'UC_B1', 'UC_B2', 'UC_B3', 'UC_B4', 'UC_B5','VP03', 'VP17', 'VP18']
+CLASS_WEIGHT = {0: 0.3135634184068059,
+                 1: 2.1480132450331126,
+                 2: 10.199685534591195,
+                 3: 4.04426433915212}
+
+phrnn_features = None
+
+subjects = SUBJECTS
+
+class_weight = get_class_weight(subjects, frames_data_path, power=1)
+print(class_weight)
+#class_weight = CLASS_WEIGHT
+#class_weight = None
 
 #### PHRNN ####
 
-files_per_batch=1
 save_best_model = True
-
-# # Create the callbacks
-#custom_verbose = CustomVerbose(epochs)
-early_stop = EarlyStopping(patience=8, monitor='val_loss')
-callbacks = [early_stop]#, custom_verbose]
-class_weight = get_class_weight(files_list, annotations_path)
-
 
 # # Start training PHRNN
-# print('Training PHRNN model...')
-# epochs = 12
-# phrnn_model_path = 'models/late_fusion/phrnn/sift-phrnn1.h5'
-# features = 'sift-phrnn'
-# phrnn, histories1 = train_leave_one_out(create_phrnn_model(features_per_lm=128),
-#                                        data_path,
-#                                        features,
-#                                        annotations_path,
-#                                        files_list, 
-#                                        files_per_batch, 
-#                                        epochs, 
-#                                        callbacks, 
-#                                        class_weight,
-#                                        save_best_model=save_best_model, 
-#                                        model_path=phrnn_model_path)
-# plot_histories(histories1, 'PHRNN Model - ADAS&ME')
-
-
-#### TCNN ####
-
-files_per_batch=1
-save_best_model = True
+print('Training PHRNN model...')
+epochs = 25
 
 # Create the callbacks
 #custom_verbose = CustomVerbose(epochs)
-early_stop = EarlyStopping(patience=80, monitor='val_loss')
+early_stop = EarlyStopping(patience=12, monitor='val_loss')
 callbacks = [early_stop]#, custom_verbose]
-class_weight = get_class_weight(files_list, annotations_path, power=0.9)
+
+phrnn_model_path = 'models/late_fusion/phrnn/sift-phrnn1.h5'
+phrnn_features = 'sift-phrnn' # 'landmarks-phrnn' or 'sift-phrnn'
+phrnn_features_per_lm = 128 if 'sift' in phrnn_features else 2
+
+phrnn, hist_phrnn = train_leave_one_out(create_phrnn_model(phrnn_features_per_lm),
+                                       data_path,
+                                       frames_data_path,
+                                       subjects,
+                                       phrnn_features, 
+                                       epochs, 
+                                       callbacks, 
+                                       class_weight=class_weight,
+                                       save_best_model=save_best_model, 
+                                       model_path=phrnn_model_path)
+
+# plot_histories(hist_phrnn, 'PHRNN Model - ADAS&ME')
+
+#### TCNN ####
+
+save_best_model = True
 
 #Start training TCNN
 print('Training TCNN model...')
-epochs = 400
+epochs = 50
+
+# Create the callbacks
+custom_verbose = CustomVerbose(epochs)
+early_stop = EarlyStopping(patience=20, monitor='val_loss')
+callbacks = [early_stop, custom_verbose]
+
 tcnn_model_path = 'models/late_fusion/tcnn/tcnn1.h5'
-features = 'vgg-tcnn'
+tcnn_features = 'vgg-tcnn'
 pre_trained_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/ck-fer/models/tcnn/tcnn_split1.h5'
 
-# tcnn_top, histories2 = train_leave_one_out(create_tcnn_top(pre_trained_model_path),
-#                                        data_path,
-#                                        features,
-#                                        annotations_path,
-#                                        files_list, 
-#                                        files_per_batch, 
-#                                        epochs, 
-#                                        callbacks, 
-#                                        class_weight,
-#                                        save_best_model=save_best_model, 
-#                                        model_path=tcnn_model_path)
+tcnn_top, hist_tcnn = train_leave_one_out(create_tcnn_top(pre_trained_model_path),
+                                         data_path,
+                                         frames_data_path,
+                                         subjects,
+                                         tcnn_features, 
+                                         epochs, 
+                                         callbacks, 
+                                         class_weight=class_weight,
+                                         save_best_model=save_best_model, 
+                                         model_path=tcnn_model_path)
 
 
-# plot_histories(histories1, 'PHRNN Model - ADAS&ME')
-# plot_histories(histories2, 'TCNN Model - ADAS&ME')
+plot_histories(hist_phrnn, 'PHRNN Model - ADAS&ME')
+plot_histories(hist_tcnn, 'TCNN Model - ADAS&ME')
 
 
 #### TESTING ####
 
 print('\nTesting model...')
-files_list = [('Driver2', '20181121_162205'),
-                 ('Driver3', '20180823_095005'),
-                 ('TS7_DRIVE', '20180829_114712'),
-                 ('UC_B', '20181121_163847'),
-                 ('UC_B', '20181121_165322'),
-                 ('VP03', '20180822_162114'),
-                 ('VP17', '20180823_095005'),
-                 ('VP18', '20180823_095958')]
-# tcnn_model_path, phrnn_model_path
-# y_pred, y_true = evaluate_tcnn_phrnn_model(tcnn_model_path, None, data_path, annotations_path, files_list, files_per_batch, merge_weight=0.5)
+# tcnn_model_path, phrnn_model_path 
+y_pred, y_true = evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features, subjects, data_path, frames_data_path)
 print_model_eval_metrics(y_pred, y_true)
 
 # Plot confusion matrix

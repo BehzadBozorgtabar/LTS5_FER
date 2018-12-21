@@ -49,7 +49,6 @@ def get_file_annotations(annotations_path, file):
     """Returns a dataframe containing all annotations for a given file.
     """
     annotations_file_path = annotations_path+'/'+file[0]+'/'+file[1]+'_annotated{}.csv'
-
     if os.path.isfile(annotations_file_path.format('')) :
         # if file contains less than 1000 frames, annotations are stored in a single csv file
         annotations = pd.read_csv(annotations_file_path.format(''))
@@ -62,7 +61,7 @@ def get_file_annotations(annotations_path, file):
             annotations.append(annot)
             i += 1
         annotations = pd.concat(annotations, sort=True)
-
+        
     return annotations
 
 def get_labels_from_annotations(annotations, nb_frames_per_sample=5):
@@ -92,17 +91,68 @@ def get_labels_from_annotations(annotations, nb_frames_per_sample=5):
     # Take emotion of first frame
     y = y[:,0]
     
-    return y, valid_mask
+    # Discard samples that contain frames from different cameras
+    frame_numbers = annotations.apply(lambda row: int(row['FrameNumber']), axis=1).values
+    frame_numbers = frame_numbers[:trim].reshape((-1, nb_frames_per_sample))[valid_mask]
+    
+    return y, valid_mask, frame_numbers
+
+def get_labels_from_pickle(pickle_file_path, nb_frames_per_sample=5):
+    """Returns the (filtered) labels for the given file, 
+    as well as the mask applied during filtering.
+    """
+    with open(pickle_file_path, 'rb') as f:
+        _, roi =  pickle.load(f)
+        
+    y = np.array([r['Severity']-1 for r in roi])
+    camera_idx = np.array([r['CameraIndex'] for r in roi])
+    frames_nbs = np.array([r['FrameNumber'] for r in roi])
+    
+    # group by 'nb_frames_per_sample' frames
+    trim = y.shape[0] - y.shape[0]%nb_frames_per_sample
+    y = y[:trim].reshape((-1, nb_frames_per_sample))
+
+    # Discard samples containing invalid annotation '-999'
+    mask1 = (y>=0).all(axis=1)
+
+    # Discard samples containing different emotions
+    mask2 = np.array([len(set(s))<=1 for s in y])
+    
+    # Discard samples that contain frames from different cameras
+    camera_idx = camera_idx[:trim].reshape((-1, nb_frames_per_sample))
+    mask3 = np.array([len(set(i))<=1 for i in camera_idx])
+    
+    # Discard that have non-consecutive frames
+    frames_nbs = frames_nbs[:trim].reshape((-1, nb_frames_per_sample))
+    mask4 = np.array([abs(fr_nbs[-1]-fr_nbs[0])<=4 for fr_nbs in frames_nbs])
+    
+    valid_mask = np.logical_and(mask1, np.logical_and(mask2, np.logical_and(mask3, mask4)))
+    y = y[valid_mask]
+    
+    # Take emotion of first frame
+    y = y[:,0]
+    
+    frames_nbs = frames_nbs[valid_mask]
+    
+    return y, valid_mask, frames_nbs
+
+def get_files_list(subjects, frames_data_path):
+    files_list = []
+    for subj in subjects:
+        subj_frames_data_path = frames_data_path+'/'+subj
+        files = sorted([(subj, f[:-4]) for f in os.listdir(subj_frames_data_path) if f.endswith('.pkl')])
+        files_list += files
+    return files_list
+
 class DataGenerator(Sequence):
     'Generates data for training on the ADAS&ME dataset'
-    def __init__(self, files_list, files_per_batch=1, features='sift-vgg', data_path='data',
-                 annotations_path='ADAS&ME_data/annotated', nb_frames_per_sample=5, shuffle=True):
+    def __init__(self, files_list, data_path, frames_data_path, files_per_batch=1, features='sift-vgg', nb_frames_per_sample=5, shuffle=True):
         'Initialization'
         self.files_list = files_list
+        self.data_path = data_path
+        self.frames_data_path = frames_data_path
         self.files_per_batch = files_per_batch
         self.features = features
-        self.data_path = data_path
-        self.annotations_path = annotations_path
         self.nb_frames_per_sample = nb_frames_per_sample
         self.shuffle=shuffle
         self.on_epoch_end()
@@ -118,9 +168,9 @@ class DataGenerator(Sequence):
 
         # Generate indexes of the batch
         files = [self.files_list[i] for i in indexes]
-
+        #print(files)
         # Generate data
-        X, y = self.__data_generation(files)
+        X, y, frame_numbers = self.__data_generation(files)
 
         return X, y
 
@@ -132,8 +182,8 @@ class DataGenerator(Sequence):
     
     def load_data_from_file(self, file):
         'Loads the data from a the given file'
-        annotations = get_file_annotations(self.annotations_path, file)
-        y, valid_mask = get_labels_from_annotations(annotations)
+        pickle_file_path = self.frames_data_path+'/'+file[0]+'/'+file[1]+'.pkl'
+        y, valid_mask, frame_numbers = get_labels_from_pickle(pickle_file_path)
         y = to_categorical(y, num_classes=nb_emotions) 
         
         sift_data_path = self.data_path+'/'+file[0]+'/sift/sift_'+file[1]+'.pkl'
@@ -181,7 +231,7 @@ class DataGenerator(Sequence):
         elif self.features == 'landmarks-phrnn':
             with open(landmarks_data_path, 'rb') as f:
                 landmarks = pickle.load(f)
-
+                
             landmarks_norm = normalize_face_landmarks(landmarks)
 
             trim = landmarks_norm.shape[0] - landmarks_norm.shape[0]%self.nb_frames_per_sample
@@ -211,7 +261,7 @@ class DataGenerator(Sequence):
         else:
             raise ValueError('\'features\' parameter is invalid.')
         
-        return x, y
+        return x, y, frame_numbers
 
     def __data_generation(self, list_files_temp):
         'Generates data containing batch_size samples'
@@ -222,15 +272,16 @@ class DataGenerator(Sequence):
             y = []
 
             for file in list_files_temp:
-                x_file, y_file = self.load_data_from_file(file)
+                x_file, y_file, frame_numbers = self.load_data_from_file(file)
                 x.append(x_file)
                 y.append(y_file)
 
             x = np.concatenate(x, axis=0)
             y = np.concatenate(y, axis=0)
 
-            return x, y
+            return x, y, frame_numbers
     
+
 def leave_one_out_split(test_subj, files_list):
     """Returns the train/test split for subject-wise leave-one-out.
     """
@@ -239,7 +290,7 @@ def leave_one_out_split(test_subj, files_list):
     
     return train_files_list, val_files_list
 
-def train_leave_one_out(create_model, data_path, features, annotations_path, files_list, files_per_batch, epochs, callbacks, class_weight=None, save_best_model=False, save_each_split=True, model_path=None):
+def train_leave_one_out(create_model, data_path, frames_data_path, subjects, features, epochs, callbacks, files_per_batch=1, class_weight=None, save_best_model=False, save_each_split=True, model_path=None):
     """Train a model using leave-one-out.
     """
     if save_best_model and not save_each_split:
@@ -249,6 +300,7 @@ def train_leave_one_out(create_model, data_path, features, annotations_path, fil
 
     histories = []
     val_accs = []
+    files_list = get_files_list(subjects, frames_data_path)
     subjects_list = sorted(list(set([subj for (subj,f) in files_list])))
     for i, subject in enumerate(subjects_list):
         print("Running Fold {}/{} : testing on {}".format(i+1, len(subjects_list), subject))
@@ -261,17 +313,17 @@ def train_leave_one_out(create_model, data_path, features, annotations_path, fil
             cur_callbacks.append(model_checkpoint)
         
         train_files_list, val_files_list = leave_one_out_split(subject, files_list)
-        training_generator = DataGenerator(train_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, features=features, data_path=data_path, annotations_path=annotations_path)
-        validation_generator = DataGenerator(val_files_list, nb_frames_per_sample=5, files_per_batch=files_per_batch, features=features, data_path=data_path, annotations_path=annotations_path)
+        training_generator = DataGenerator(train_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features=features)
+        validation_generator = DataGenerator(val_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features=features)
         
         hist = model.fit_generator(generator=training_generator,
                                     validation_data=validation_generator,
                                     epochs=epochs,
                                     class_weight=class_weight,
-                                    use_multiprocessing=True,
-                                    workers=6,
+                                    use_multiprocessing=False,
+                                    workers=4,
                                     callbacks=cur_callbacks if save_best_model else callbacks,
-                                    verbose=1)
+                                    verbose=0)
         histories.append(hist)
 
         # Save the val_acc of the best epoch
@@ -279,23 +331,24 @@ def train_leave_one_out(create_model, data_path, features, annotations_path, fil
         best_val_loss = hist.history['val_loss'][best_epoch]
         best_val_acc = hist.history['val_acc'][best_epoch]
         val_accs.append(best_val_acc)
-        print("  Best model : epoch {} - val_loss: {:.6f} - val_acc: {:.6f}".format(best_epoch, best_val_loss, best_val_acc))
+        print("  Best model : epoch {} - val_loss: {:.6f} - val_acc: {:.6f}".format(best_epoch+1, best_val_loss, best_val_acc))
 
     cross_val_acc = np.mean(val_accs)
     print('Average validation accuracy : {:.6f}'.format(cross_val_acc))
 
     return model, histories
 
-
-def get_class_weight(files_list, annotations_path, mode='balanced', power=1):
+def get_class_weight(subjects, frames_data_path, mode='balanced', power=1):
     """Returns the class weights computed from the class distribution.
     """
+    files_list = get_files_list(subjects, frames_data_path)
     counts = [0]*nb_emotions
     y = []
     for subj, file in files_list:
         #annotations = pd.read_csv(annotations_path+'/'+subj+'/'+file+"_annotated.csv")
-        annotations = get_file_annotations(annotations_path, (subj, file))
-        y_file, _ = get_labels_from_annotations(annotations)
+        pickle_file_path = frames_data_path+'/'+subj+'/'+file+'.pkl'
+        y_file, _, _ = get_labels_from_pickle(pickle_file_path)
+
         y = np.concatenate([y, y_file])
         
     print("Class distribution : "+str(Counter(y)))
@@ -328,7 +381,7 @@ def create_tcnn_top(pre_trained_model_path=None):
             tcnn_top.layers[0].trainable = False
         
         tcnn_top.compile(loss='categorical_crossentropy',
-                     optimizer=optimizers.Adam(),
+                     optimizer=optimizers.Adam(),#lr=0.001
                      metrics=['accuracy'])
         
         return tcnn_top
@@ -375,7 +428,7 @@ def create_phrnn_model(features_per_lm):
         phrnn = Model(inputs=inputs, outputs=output)
 
         phrnn.compile(loss='categorical_crossentropy',
-                      optimizer=optimizers.Adam(lr=0.01),
+                      optimizer=optimizers.Adam(),#lr=0.001
                       metrics=['accuracy'])
         return phrnn
     
