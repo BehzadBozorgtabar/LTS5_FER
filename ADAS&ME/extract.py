@@ -14,12 +14,15 @@ from const import *
 # annotations_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/annotated'
 vggCustom_weights_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/customised_VGG.h5'
 
-frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data3'
+frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data4'
 
 
 # Extract frames from smb files
 
-subjects = ['TS7_DRIVE', 'TS9_DRIVE', 'UC_B1', 'UC_B2', 'UC_B3', 'UC_B4', 'UC_B5','VP03', 'VP17', 'VP18']
+subjects = ['S000','S004','S005','S007','S008','S011','S015','S022','S026', \
+            'TS4_DRIVE','TS7_DRIVE', \
+            'UC_B1','UC_B2','UC_B3','UC_B4', \
+            'VP03','VP18']
 
 # for i, subject in enumerate(subjects):
 #     print(subject)

@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+from collections import Counter
 
 from keras.models import load_model
 from keras.utils.np_utils import to_categorical
@@ -63,22 +64,36 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features,
     y_true = np.array([])
     
     files_list = get_files_list(subjects_list, frames_data_path)
-    for i, subject in enumerate(subjects_list):
+    # Files starting with S should not be used for testing
+    subjects_list_test = [subj for subj in subjects_list if not subj.startswith('S')]
+    
+    for i, subject in enumerate(subjects_list_test):
         print("Testing on {}...".format(subject))
         
         train_files_list, val_files_list = leave_one_out_split(subject, files_list)
         tcnn_val_generator = DataGenerator(val_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features='vgg-tcnn')
         phrnn_val_generator = DataGenerator(val_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features=phrnn_features)
         
+        x_tcnn, y_tcnn = tcnn_val_generator.load_all_data()
+        x_phrnn, y_phrnn = phrnn_val_generator.load_all_data()
+        cur_y_true = np.argmax(y_phrnn, axis=1)
+                
         # Load models of the current split 
         if tcnn_model_path is not None:
             cur_tcnn_model_path = tcnn_model_path[:-3]+'_'+subject+tcnn_model_path[-3:]
             tcnn_model = load_model(cur_tcnn_model_path)
-            y_pred_tcnn = tcnn_model.predict_generator(generator=tcnn_val_generator)
+            y_pred_tcnn = tcnn_model.predict(x_tcnn)
+            
+            acc_tcnn = (cur_y_true == np.argmax(y_pred_tcnn, axis=1)).sum()/len(cur_y_true)
+            print('  TCNN  - acc: {:.5f} - count: {}'.format(acc_tcnn, str(Counter(np.argmax(y_pred_tcnn, axis=1)))))
+            
         if phrnn_model_path is not None:
             cur_phrnn_model_path = phrnn_model_path[:-3]+'_'+subject+phrnn_model_path[-3:]
             phrnn_model = load_model(cur_phrnn_model_path)
-            y_pred_phrnn = phrnn_model.predict_generator(generator=phrnn_val_generator)
+            y_pred_phrnn = phrnn_model.predict(x_phrnn)
+            
+            acc_phrnn = (cur_y_true == np.argmax(y_pred_phrnn, axis=1)).sum()/len(cur_y_true)
+            print('  PHRNN - acc: {:.5f} - count: {}'.format(acc_phrnn, str(Counter(np.argmax(y_pred_phrnn, axis=1)))))
         
         if (tcnn_model_path is not None) and (phrnn_model_path is not None):
             cur_y_pred = merge_weight*y_pred_tcnn + (1-merge_weight)*y_pred_phrnn
@@ -90,19 +105,12 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features,
         cur_y_pred = np.argmax(cur_y_pred, axis=1)
         y_pred = np.concatenate([y_pred, cur_y_pred])
         
-        cur_y_true = []
-        for (s, file) in val_files_list:
-            pickle_file_path = frames_data_path+'/'+s+'/'+file+'.pkl'
-            file_y_true, _, _ = get_labels_from_pickle(pickle_file_path)
-            
-            if s is 'TS11_DRIVE' and file is '20180827_115840':
-                file_y_true = file_y_true[:14250//nb_frames_per_sample]
-            cur_y_true.append(file_y_true)
-        
-        cur_y_true = np.concatenate(cur_y_true)
         y_true = np.concatenate([y_true, cur_y_true])
         
-        print(y_pred.shape, y_true.shape)
+        x_tcnn = None
+        x_phrnn = None
+        tcnn_val_generator = None
+        phrnn_val_generator = None
 
     #print_model_eval_metrics(y_pred, y_true)
     return y_pred, y_true

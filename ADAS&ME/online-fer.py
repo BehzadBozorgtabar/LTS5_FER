@@ -3,8 +3,10 @@ import os
 import cv2
 import numpy as np
 import time
+from imageio import imread, imwrite
+from scipy.misc import imresize
 
-from extraction import create_tcnn_bottom, extract_all_face_landmarks, extract_pickle_data, get_conv_1_1_weights
+from extraction import create_tcnn_bottom, extract_all_face_landmarks, extract_pickle_data, get_conv_1_1_weights, read_image, read_roi_data, read_smb_header, get_face_square
 from training import normalize_face_landmarks, create_tcnn_top, create_phrnn_model
 from const import *
 
@@ -13,26 +15,68 @@ from keras.utils.np_utils import to_categorical
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
-def predict_online(frames, nb_frames_per_sample, y_true=None, merge_weight=0.5):
+def get_frame_from_smb(smb_file_path, frame_idx):
+	file = open(smb_file_path, "rb")
+	SMB_HEADER_SIZE = 20
+	subj_frames = []
+	i = 0
+	image=None
+	try:
+		# Read SMB header
+		image_width, image_height = read_smb_header(file)
+
+		current_position = frame_idx * ((image_width * image_height) + SMB_HEADER_SIZE)
+		file.seek(current_position)
+
+		smb_header = file.read(SMB_HEADER_SIZE)
+		if not smb_header:
+			raise Exception('End of the smb file') 
+
+		# Read ROI data
+		camera_index, frame_number, time_stamp, roi_left, roi_top, roi_width, roi_height, camera_angle = read_roi_data(file)
+
+		# Read image
+		file.seek(current_position + SMB_HEADER_SIZE)
+		image = read_image(file, image_width, image_height)
+
+		# Align image with face using roi data
+		((l,t),(r,b)) = get_face_square(roi_left, roi_top, roi_width, roi_height, 1)
+		image = image[t:b,l:r]
+
+		# Resize image to 224x224
+		image = imresize(image, (img_size, img_size))
+
+		# convert to rgb if greyscale
+		if len(image.shape)==2:
+			image = np.stack((image,)*3, axis=-1)
+	finally:
+		file.close()
+
+	return image
+
+def get_frame_sequence_from_smb(smb_file_path, start_frame_idx, nb_frames):
+	sequence = []
+	for i in range(nb_frames):
+		frame = get_frame_from_smb(smb_file_path, start_frame_idx+i)
+		sequence.append(frame)
+
+	sequence = np.array(sequence)
+	sequence = sequence[np.newaxis, :]
+	return sequence
+
+
+def predict_online(smb_file_path, nb_frames_per_sample, merge_weight=0.5):
 	plt.figure(figsize=(3,3))
 	img = None
 
-	trim = frames.shape[0] - frames.shape[0]%nb_frames_per_sample
-	frames = frames[:trim]
-	sequences = frames.reshape((-1, 1, nb_frames_per_sample, img_size, img_size, 3))
-
-	y_true = np.array(y_true[:trim]).reshape((-1, nb_frames_per_sample))
-	y_true = np.argmax(np.mean(to_categorical(y_true, num_classes=nb_emotions), axis=1), axis=1)
-
-	y_preds = []
-
 	start_time = time.time()
 
-	# Go through all frames sequences one by one
-	for i, sequence in enumerate(sequences):
-		print("sequence {}/{}".format(i+1, len(sequences)), end='\r')
-		im=sequence[-1, 0]
-		im=np.multiply(sequence[-1, 0], 255).astype(np.uint8)#.copy() 
+	# Go through frames sequences one by one
+	sequence_idx = 0
+	while True:
+		sequence = get_frame_sequence_from_smb(smb_file_path, sequence_idx*nb_frames_per_sample, nb_frames_per_sample)
+
+		im=np.multiply(sequence[-1, 0], -255).astype(np.uint8)#.copy() 
 
 		# Prepare VGG-TCNN features
 		vgg_tcnn_features = tcnn_bottom.predict([sequence[:,i] for i in range(nb_frames_per_sample)])
@@ -54,37 +98,31 @@ def predict_online(frames, nb_frames_per_sample, y_true=None, merge_weight=0.5):
 		y_pred_phrnn = phrnn.predict(x_landmarks)
 		y_pred = merge_weight*y_pred_tcnn + (1-merge_weight)*y_pred_phrnn
 		emo_pred = np.argmax(y_pred)
-		y_preds.append(emo_pred)
 
 		# Display image with predicted emotion on top
 		color = (255, 0, 0)
 		cv2.putText(im, emotions[emo_pred], (2, 16), font, 0.7, color, 1, cv2.LINE_AA)
 		if img is None:
-			img = plt.imshow(im)
+			img = plt.imshow(im, cmap='gray')
 		else:
 			img.set_data(im)
 
-		plt.pause(.1)
+		plt.pause(.01)
 		plt.draw()
 
-	elapsed_time = time.time() - start_time
-	avg_time_per_predictions = elapsed_time/len(sequences)
+		elapsed_time = time.time() - start_time
+		avg_infer_time = elapsed_time/(sequence_idx+1)
 
-	print('')
-	print('Finished online-predictions')
-	print(' Average time per prediction : {:3f} seconds'.format(avg_time_per_predictions))
+		print('Sequence {} - Average inference time : {:3f} seconds'.format(sequence_idx, avg_infer_time))
 
-	# Compute the accuracy of the emotion prediction over the sequence
-	if y_true is not None:
-		acc = (y_true == y_preds).sum()/len(y_preds)
-		print(' Accuracy over image sequence : {:.3f}'.format(acc))
+		sequence_idx += 1
 
 
 #### MAIN CODE ####
 
-sift_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/sift-phrnn1_Driver2.h5'
-lm_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/ADAS&ME/models/late_fusion/phrnn/lm-phrnn1_Driver2.h5'
-tcnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/tcnn/tcnn1_Driver2.h5'
+sift_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/sift-phrnn1_TS4_DRIVE.h5'
+lm_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/landmarks-phrnn1_TS4_DRIVE.h5'
+tcnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/tcnn/tcnn1_TS4_DRIVE.h5'
 
 # Prepare TCNN model
 conv1_1_weigths = get_conv_1_1_weights(vggCustom_weights_path)
@@ -96,13 +134,8 @@ tcnn_top.load_weights(tcnn_model_path)
 phrnn = create_phrnn_model(features_per_lm=2)()
 phrnn.load_weights(lm_phrnn_model_path)
 
-pickle_file_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data/TS7_DRIVE/20180829_114712_1.pkl'
+smb_file_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/smb/TS4_DRIVE/20180824_150225.smb'
 
-# Get data and lauch online prediction
-nb_frames = 100
-frames, y_true, _ = extract_pickle_data(pickle_file_path)
-frames = frames[:nb_frames]
-y_true = y_true[:nb_frames]
-
-predict_online(frames, nb_frames_per_sample=5, y_true=y_true)
+# launch online prediction
+predict_online(smb_file_path, nb_frames_per_sample=5)
 

@@ -23,40 +23,45 @@ from const import *
 
 #### TRAINING ####
 
+# insert path of the frames & annotations
+frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data4'
 
-frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data3'
+# insert path of pre-extracted features here
 data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
 
-SUBJECTS = ['TS7_DRIVE', 'TS9_DRIVE', 'UC_B1', 'UC_B2', 'UC_B3', 'UC_B4', 'UC_B5','VP03', 'VP17', 'VP18']
-CLASS_WEIGHT = {0: 0.3135634184068059,
-                 1: 2.1480132450331126,
-                 2: 10.199685534591195,
-                 3: 4.04426433915212}
+
+SUBJECTS = ['S000','S004','S005','S007','S008','S011','S015','S022','S026', \
+            'TS4_DRIVE','TS7_DRIVE', \
+            'UC_B1','UC_B2','UC_B3','UC_B4', \
+            'VP03','VP18']
+
+CLASS_WEIGHT = {0: 0.5853755728232716, 1: 2.1618837380426785, 2: 1.2060755336617406}
 
 phrnn_features = None
 
 subjects = SUBJECTS
 
-class_weight = get_class_weight(subjects, frames_data_path, power=1)
-print(class_weight)
-#class_weight = CLASS_WEIGHT
+# class_weight = get_class_weight(subjects, frames_data_path, power=1)
+# print(class_weight)
+class_weight = CLASS_WEIGHT
 #class_weight = None
+
 
 #### PHRNN ####
 
 save_best_model = True
 
 # # Start training PHRNN
-print('Training PHRNN model...')
-epochs = 25
+print('\nTraining PHRNN model...')
+epochs = 200
 
 # Create the callbacks
 #custom_verbose = CustomVerbose(epochs)
-early_stop = EarlyStopping(patience=12, monitor='val_loss')
+early_stop = EarlyStopping(patience=100, monitor='val_loss')
 callbacks = [early_stop]#, custom_verbose]
 
-phrnn_model_path = 'models/late_fusion/phrnn/sift-phrnn1.h5'
-phrnn_features = 'sift-phrnn' # 'landmarks-phrnn' or 'sift-phrnn'
+phrnn_model_path = 'models/late_fusion/phrnn/landmarks-phrnn2.h5'
+phrnn_features = 'landmarks-phrnn' # 'landmarks-phrnn' or 'sift-phrnn'
 phrnn_features_per_lm = 128 if 'sift' in phrnn_features else 2
 
 phrnn, hist_phrnn = train_leave_one_out(create_phrnn_model(phrnn_features_per_lm),
@@ -72,24 +77,25 @@ phrnn, hist_phrnn = train_leave_one_out(create_phrnn_model(phrnn_features_per_lm
 
 # plot_histories(hist_phrnn, 'PHRNN Model - ADAS&ME')
 
+
 #### TCNN ####
 
 save_best_model = True
 
 #Start training TCNN
-print('Training TCNN model...')
+print('\n\nTraining TCNN model...')
 epochs = 50
 
 # Create the callbacks
 custom_verbose = CustomVerbose(epochs)
-early_stop = EarlyStopping(patience=20, monitor='val_loss')
+early_stop = EarlyStopping(patience=40, monitor='val_loss')
 callbacks = [early_stop, custom_verbose]
 
-tcnn_model_path = 'models/late_fusion/tcnn/tcnn1.h5'
+tcnn_model_path = 'models/late_fusion/tcnn/tcnn2.h5'
 tcnn_features = 'vgg-tcnn'
-pre_trained_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/ck-fer/models/tcnn/tcnn_split1.h5'
+#pre_trained_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/ck-fer/models/tcnn/tcnn_split1.h5'
 
-tcnn_top, hist_tcnn = train_leave_one_out(create_tcnn_top(pre_trained_model_path),
+tcnn_top, hist_tcnn = train_leave_one_out(create_tcnn_top(),
                                          data_path,
                                          frames_data_path,
                                          subjects,
@@ -109,7 +115,8 @@ plot_histories(hist_tcnn, 'TCNN Model - ADAS&ME')
 
 print('\nTesting model...')
 # tcnn_model_path, phrnn_model_path 
-y_pred, y_true = evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features, subjects, data_path, frames_data_path)
+merge_weight = 0.4
+y_pred, y_true = evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features, subjects, data_path, frames_data_path, merge_weight=merge_weight)
 print_model_eval_metrics(y_pred, y_true)
 
 # Plot confusion matrix

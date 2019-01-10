@@ -97,14 +97,17 @@ def get_labels_from_annotations(annotations, nb_frames_per_sample=5):
     
     return y, valid_mask, frame_numbers
 
-def get_labels_from_pickle(pickle_file_path, nb_frames_per_sample=5):
+def get_labels_from_pickle(pickle_file_path, emo_conv=None, nb_frames_per_sample=5):
     """Returns the (filtered) labels for the given file, 
     as well as the mask applied during filtering.
     """
     with open(pickle_file_path, 'rb') as f:
         _, roi =  pickle.load(f)
-        
-    y = np.array([r['Severity']-1 for r in roi])
+    
+    if emo_conv is None:
+        y = np.array([r['Severity']-1 for r in roi])
+    else:
+        y = np.array([emo_conv[r['Severity']-1] for r in roi])
     camera_idx = np.array([r['CameraIndex'] for r in roi])
     frames_nbs = np.array([r['FrameNumber'] for r in roi])
     
@@ -183,7 +186,7 @@ class DataGenerator(Sequence):
     def load_data_from_file(self, file):
         'Loads the data from a the given file'
         pickle_file_path = self.frames_data_path+'/'+file[0]+'/'+file[1]+'.pkl'
-        y, valid_mask, frame_numbers = get_labels_from_pickle(pickle_file_path)
+        y, valid_mask, frame_numbers = get_labels_from_pickle(pickle_file_path, emo_conv)
         y = to_categorical(y, num_classes=nb_emotions) 
         
         sift_data_path = self.data_path+'/'+file[0]+'/sift/sift_'+file[1]+'.pkl'
@@ -265,21 +268,34 @@ class DataGenerator(Sequence):
 
     def __data_generation(self, list_files_temp):
         'Generates data containing batch_size samples'
+        #if 'phrnn' in self.features:
+         #   return self.load_data_from_file(list_files_temp[0])
+        #else:
+        x = []
+        y = []
+
+        for file in list_files_temp:
+            x_file, y_file, frame_numbers = self.load_data_from_file(file)
+            x.append(x_file)
+            y.append(y_file)
+        
         if 'phrnn' in self.features:
-            return self.load_data_from_file(list_files_temp[0])
+            x_concat = []
+            for clstr_idx in range(5): # corresponding to the 5 clusters of landmarks
+                xt = [x[i][clstr_idx] for i in range(len(x))]
+                xt = np.concatenate(xt, axis=0)
+                x_concat.append(xt)
+            x = x_concat
         else:
-            x = []
-            y = []
-
-            for file in list_files_temp:
-                x_file, y_file, frame_numbers = self.load_data_from_file(file)
-                x.append(x_file)
-                y.append(y_file)
-
             x = np.concatenate(x, axis=0)
-            y = np.concatenate(y, axis=0)
+            
+        y = np.concatenate(y, axis=0)
 
-            return x, y, frame_numbers
+        return x, y, frame_numbers
+        
+    def load_all_data(self):
+        x, y, _ = self.__data_generation(self.files_list)
+        return x, y
     
 
 def leave_one_out_split(test_subj, files_list):
@@ -302,8 +318,12 @@ def train_leave_one_out(create_model, data_path, frames_data_path, subjects, fea
     val_accs = []
     files_list = get_files_list(subjects, frames_data_path)
     subjects_list = sorted(list(set([subj for (subj,f) in files_list])))
-    for i, subject in enumerate(subjects_list):
-        print("Running Fold {}/{} : testing on {}".format(i+1, len(subjects_list), subject))
+
+    # Files starting with S should not be used for testing
+    subjects_list_test = [subj for subj in subjects_list if not subj.startswith('S')]
+
+    for i, subject in enumerate(subjects_list_test):
+        print("Running Fold {}/{} : testing on {}".format(i+1, len(subjects_list_test), subject))
         model = create_model()
 
         if save_best_model and save_each_split:
@@ -311,19 +331,29 @@ def train_leave_one_out(create_model, data_path, frames_data_path, subjects, fea
             model_checkpoint = ModelCheckpoint(cur_model_path, monitor='val_loss', save_best_only=True)
             cur_callbacks = callbacks.copy()
             cur_callbacks.append(model_checkpoint)
+
+        print('Computing class weights...')
+        train_subj_list = subjects.copy()
+        train_subj_list.remove(subject)
+        class_weight = get_class_weight(train_subj_list, frames_data_path, emo_conv)
+        print(class_weight)
         
         train_files_list, val_files_list = leave_one_out_split(subject, files_list)
+
         training_generator = DataGenerator(train_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features=features)
+        x_train, y_train = training_generator.load_all_data()
+
         validation_generator = DataGenerator(val_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features=features)
-        
-        hist = model.fit_generator(generator=training_generator,
-                                    validation_data=validation_generator,
-                                    epochs=epochs,
-                                    class_weight=class_weight,
-                                    use_multiprocessing=False,
-                                    workers=4,
-                                    callbacks=cur_callbacks if save_best_model else callbacks,
-                                    verbose=0)
+        x_val, y_val = validation_generator.load_all_data()
+
+        hist = model.fit(x_train,
+                        y_train,
+                        validation_data=(x_val, y_val),
+                        epochs=epochs,
+                        class_weight=class_weight,
+                        callbacks=cur_callbacks if save_best_model else callbacks,
+                        verbose=1)
+
         histories.append(hist)
 
         # Save the val_acc of the best epoch
@@ -338,7 +368,7 @@ def train_leave_one_out(create_model, data_path, frames_data_path, subjects, fea
 
     return model, histories
 
-def get_class_weight(subjects, frames_data_path, mode='balanced', power=1):
+def get_class_weight(subjects, frames_data_path, emo_conv=None, mode='balanced', power=1):
     """Returns the class weights computed from the class distribution.
     """
     files_list = get_files_list(subjects, frames_data_path)
@@ -347,7 +377,7 @@ def get_class_weight(subjects, frames_data_path, mode='balanced', power=1):
     for subj, file in files_list:
         #annotations = pd.read_csv(annotations_path+'/'+subj+'/'+file+"_annotated.csv")
         pickle_file_path = frames_data_path+'/'+subj+'/'+file+'.pkl'
-        y_file, _, _ = get_labels_from_pickle(pickle_file_path)
+        y_file, _, _ = get_labels_from_pickle(pickle_file_path, emo_conv)
 
         y = np.concatenate([y, y_file])
         
