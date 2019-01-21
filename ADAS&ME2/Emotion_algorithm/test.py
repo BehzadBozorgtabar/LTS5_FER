@@ -68,6 +68,6 @@ def evaluate_one_driver_model(model, model_name, save_path, img_size=224, batch_
 	y_pred = np.argmax(predictions, axis = 1)
 	y_test = test_generator.classes
 	results = confusion_matrix(y_test , y_pred, labels= np.arange(nb_emotions))
-	plot_confusion_matrix(results, emotions, title="Confusion_Matrix_" + driver_test + "_" + model_name, normalize=True)
+	plot_full_evaluation(y_test, y_pred, driver_test + "_" + model_name)
 
 	return y_test, y_pred
