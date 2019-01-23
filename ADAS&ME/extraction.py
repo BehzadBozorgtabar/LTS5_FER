@@ -12,6 +12,7 @@ from keras.utils.np_utils import to_categorical
 from keras.models import Model, Sequential, load_model
 from keras.layers import Input, Reshape, ZeroPadding2D, MaxPooling2D, Flatten, Dropout, Activation, concatenate, average
 from keras.layers import Dense, Convolution2D, SimpleRNN, LSTM, Bidirectional
+from keras import backend as K
 
 from sift import extract_all_face_landmarks
 from training import get_file_annotations, get_labels_from_annotations
@@ -435,3 +436,120 @@ def create_tcnn_bottom(vgg_weights_path, conv1_1_weigths):
         model.get_layer(layer).set_weights(conv1_1_weigths)
 
     return model
+
+def fire_module(x, fire_id, squeeze=16, expand=64):
+    """Helper function for the creation of the Squeezenet model.
+    """
+    sq1x1 = "squeeze1x1"
+    exp1x1 = "expand1x1"
+    exp3x3 = "expand3x3"
+    relu = "relu_"
+    s_id = 'fire' + str(fire_id) + '/'
+
+    if K.image_data_format() == 'channels_first':
+        channel_axis = 1
+    else:
+        channel_axis = 3
+    
+    x = Convolution2D(squeeze, (1, 1), padding='valid', name=s_id + sq1x1)(x)
+    x = Activation('relu', name=s_id + relu + sq1x1)(x)
+
+    left = Convolution2D(expand, (1, 1), padding='valid', name=s_id + exp1x1)(x)
+    left = Activation('relu', name=s_id + relu + exp1x1)(left)
+
+    right = Convolution2D(expand, (3, 3), padding='same', name=s_id + exp3x3)(x)
+    right = Activation('relu', name=s_id + relu + exp3x3)(right)
+
+    x = concatenate([left, right], axis=channel_axis, name=s_id + 'concat')
+    return x
+
+def get_conv1_weights(squeezenet_weights_path):
+    """Returns the weights of first convolutional layer of Squeezenet (conv_1).
+    """
+    temp_mod = Sequential()
+    temp_mod.add(Convolution2D(64, (3, 3), strides=(2, 2), padding='valid', name='conv1',input_shape=(img_size, img_size, 3)))
+    temp_mod.load_weights(squeezenet_weights_path, by_name=True)
+    conv1_weights = temp_mod.get_layer('conv1').get_weights()
+    return conv1_weights
+
+def create_squeezenet_tcnn_bottom(squeezenet_weights_path, conv1_weights):
+    """Creates the bottom part of the Squeezenet TCNN.
+    """
+    # Create inputs for the 5 frames
+    input_shape=(227, 227, 3)
+    frame1 = Input(shape=input_shape, name='frame1')
+    frame2 = Input(shape=input_shape, name='frame2')
+    frame3 = Input(shape=input_shape, name='frame3')
+    frame4 = Input(shape=input_shape, name='frame4')
+    frame5 = Input(shape=input_shape, name='frame5')
+    
+    # Convolution for each frame
+    frame1_conv = Convolution2D(64, (3, 3), strides=(2, 2), activation='relu', padding='valid', name='conv1a')(frame1)
+    frame2_conv = Convolution2D(64, (3, 3), strides=(2, 2), activation='relu', padding='valid', name='conv1b')(frame2)
+    frame3_conv = Convolution2D(64, (3, 3), strides=(2, 2), activation='relu', padding='valid', name='conv1c')(frame3)
+    frame4_conv = Convolution2D(64, (3, 3), strides=(2, 2), activation='relu', padding='valid', name='conv1d')(frame4)
+    frame5_conv = Convolution2D(64, (3, 3), strides=(2, 2), activation='relu', padding='valid', name='conv1e')(frame5)
+    
+    # Temporal aggregation by averaging
+    temp_aggr = average([frame1_conv, frame2_conv, frame3_conv, frame4_conv, frame5_conv])
+
+    # Then standard Squeezenet architecture
+    output = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), name='pool1')(temp_aggr)
+
+    output = fire_module(output, fire_id=2, squeeze=16, expand=64)
+    output = fire_module(output, fire_id=3, squeeze=16, expand=64)
+    output = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), name='pool3')(output)
+
+    output = fire_module(output, fire_id=4, squeeze=32, expand=128)
+    output = fire_module(output, fire_id=5, squeeze=32, expand=128)
+    output = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), name='pool5')(output)
+
+    output = fire_module(output, fire_id=6, squeeze=48, expand=192)
+    output = fire_module(output, fire_id=7, squeeze=48, expand=192)
+    output = fire_module(output, fire_id=8, squeeze=64, expand=256)
+    output = fire_module(output, fire_id=9, squeeze=64, expand=256)
+
+    inputs = [frame1, frame2, frame3, frame4, frame5]
+    model = Model(inputs=inputs, outputs=output)
+    
+    # load Squeezenet weights
+    model.load_weights(squeezenet_weights_path, by_name=True)
+    for layer in ['conv1a', 'conv1b', 'conv1c', 'conv1d', 'conv1e']:
+        model.get_layer(layer).set_weights(conv1_weights)
+
+    return model
+
+def extract_squeezenet_tcnn(squeezenet_predictor, nb_frames_per_sample, subj_data_path, dest_folder):
+    """Extract SqueezeNet-TCNN features from the frames.
+    """
+    sq_img_size = 227
+    
+    pickle_files = sorted([f for f in os.listdir(subj_data_path) if f.endswith('.pkl')])
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    for file in pickle_files:
+        print('Extracting from '+file+'...')
+        pickle_data_path_full = subj_data_path+'/'+file
+        x, _, _ = extract_pickle_data(pickle_data_path_full)
+
+        # Group by sequences of 'nb_frames_per_sample' frames
+        trim = x.shape[0] - x.shape[0]%nb_frames_per_sample
+        x = x[:trim]
+        
+        # resize frames to 227*227 for squeezenet
+        x = np.array([imresize(img, (sq_img_size, sq_img_size)) for img in x])
+        x = x.reshape((-1, nb_frames_per_sample, sq_img_size, sq_img_size, 3))
+        
+        print(' Computing SqueezeNet-TCNN features...')
+        squeezenet_tcnn_features = squeezenet_predictor([x[:,i] for i in range(nb_frames_per_sample)])
+        print(" "+str(squeezenet_tcnn_features.shape))
+        
+        dest = dest_folder+'/squeezenet_tcnn'
+        if not os.path.exists(dest):
+            os.makedirs(dest)
+            
+        with open('{}/squeezenet_tcnn_{}'.format(dest, file), 'wb') as f:
+            pickle.dump(squeezenet_tcnn_features, f)
+        squeezenet_tcnn_features = None
+        x = None

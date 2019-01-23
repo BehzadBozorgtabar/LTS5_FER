@@ -13,6 +13,7 @@ from const import *
 # frames_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/frames'
 # annotations_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/annotated'
 vggCustom_weights_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/customised_VGG.h5'
+squeezeNet_custom_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/SqueezeNet.49-0.83.hdf5'
 
 frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data4'
 
@@ -60,27 +61,40 @@ for i, subject in enumerate(subjects):
 
 
 # Extract SIFT features
-print('SIFT Features')
-dest_folder = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
+# print('SIFT Features')
+# dest_folder = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
 
-for i, subject in enumerate(subjects):
-    print(subject)
+# for i, subject in enumerate(subjects):
+#     print(subject)
 
-    subj_data_path = frames_data_path+'/'+subject
-    subj_dest_folder = dest_folder+'/'+subject
-    extract_sift(extract_all_sift_features, subj_data_path, subj_dest_folder)
+#     subj_data_path = frames_data_path+'/'+subject
+#     subj_dest_folder = dest_folder+'/'+subject
+#     extract_sift(extract_all_sift_features, subj_data_path, subj_dest_folder)
 
 
 # Extract VGG-TCNN features for the late-fusion model
-print('VGG-TCNN Features')
+# print('VGG-TCNN Features')
+# dest_folder = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
+
+# conv1_1_weigths = get_conv_1_1_weights(vggCustom_weights_path)
+# tcnn_bottom = create_tcnn_bottom(vggCustom_weights_path, conv1_1_weigths)
+
+# for i, subject in enumerate(subjects):
+#     print(subject)
+
+#     subj_data_path = frames_data_path+'/'+subject
+#     subj_dest_folder = dest_folder+'/'+subject
+#     extract_vgg_tcnn(tcnn_bottom.predict, 5, subj_data_path, subj_dest_folder)
+
+print('SqueezeNet-TCNN Features')
 dest_folder = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
 
-conv1_1_weigths = get_conv_1_1_weights(vggCustom_weights_path)
-tcnn_bottom = create_tcnn_bottom(vggCustom_weights_path, conv1_1_weigths)
+conv1_weights = get_conv1_weights(squeezeNet_custom_path)
+squeezenet_tcnn_bottom = create_squeezenet_tcnn_bottom(squeezeNet_custom_path, conv1_weights)
 
 for i, subject in enumerate(subjects):
     print(subject)
 
     subj_data_path = frames_data_path+'/'+subject
     subj_dest_folder = dest_folder+'/'+subject
-    extract_vgg_tcnn(tcnn_bottom.predict, 5, subj_data_path, subj_dest_folder)
+    extract_squeezenet_tcnn(squeezenet_tcnn_bottom.predict, 5, subj_data_path, subj_dest_folder)

@@ -11,7 +11,7 @@ from keras.layers import Input, Convolution2D, ZeroPadding2D, MaxPooling2D, Flat
 from keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from keras import optimizers
 
-from training import create_tcnn_top, create_phrnn_model, train_leave_one_out, leave_one_out_split, DataGenerator, CustomVerbose, get_class_weight
+from training import create_tcnn_top, create_squeezenet_tcnn_top, create_phrnn_model, train_leave_one_out, leave_one_out_split, DataGenerator, CustomVerbose, get_class_weight
 from testing import evaluate_model, evaluate_tcnn_phrnn_model, print_model_eval_metrics
 from plot import plot_histories, plot_confusion_matrix
 from const import *
@@ -51,7 +51,7 @@ class_weight = CLASS_WEIGHT
 
 save_best_model = True
 
-# # Start training PHRNN
+# Start training PHRNN
 print('\nTraining PHRNN model...')
 epochs = 200
 
@@ -92,10 +92,11 @@ early_stop = EarlyStopping(patience=40, monitor='val_loss')
 callbacks = [early_stop, custom_verbose]
 
 tcnn_model_path = 'models/late_fusion/tcnn/tcnn2.h5'
-tcnn_features = 'vgg-tcnn'
+#tcnn_model_path = 'models/late_fusion/tcnn/squeezenet_tcnn1.h5'
+tcnn_features = 'squeezenet-tcnn' #'vgg-tcnn' or 'squeezenet-tcnn'
 #pre_trained_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/ck-fer/models/tcnn/tcnn_split1.h5'
 
-tcnn_top, hist_tcnn = train_leave_one_out(create_tcnn_top(),
+tcnn_top, hist_tcnn = train_leave_one_out(create_squeezenet_tcnn_top,#create_tcnn_top() or create_squeezenet_tcnn_top
                                          data_path,
                                          frames_data_path,
                                          subjects,

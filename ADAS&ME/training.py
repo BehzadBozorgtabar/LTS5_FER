@@ -193,6 +193,7 @@ class DataGenerator(Sequence):
         landmarks_data_path = self.data_path+'/'+file[0]+'/landmarks/landmarks_'+file[1]+'.pkl'
         vgg_data_path = self.data_path+'/'+file[0]+'/vgg/vggCustom_'+file[1]+'.pkl'
         vgg_tcnn_data_path = self.data_path+'/'+file[0]+'/vgg_tcnn/vgg_tcnn_'+file[1]+'.pkl'
+        squeezenet_tcnn_data_path = self.data_path+'/'+file[0]+'/squeezenet_tcnn/squeezenet_tcnn_'+file[1]+'.pkl'
         
         if self.features == 'vgg-sift' or self.features == 'sift-vgg':
             with open(sift_data_path, 'rb') as f:
@@ -257,6 +258,14 @@ class DataGenerator(Sequence):
             with open(vgg_tcnn_data_path, 'rb') as f:
                 vgg_tcnn_features = pickle.load(f)
             x = vgg_tcnn_features
+            
+            # Filter out samples whose annotations are invalid
+            x = x[valid_mask]
+
+        elif self.features == 'squeezenet-tcnn':
+            with open(squeezenet_tcnn_data_path, 'rb') as f:
+                squeezenet_tcnn_features = pickle.load(f)
+            x = squeezenet_tcnn_features
             
             # Filter out samples whose annotations are invalid
             x = x[valid_mask]
@@ -416,6 +425,24 @@ def create_tcnn_top(pre_trained_model_path=None):
         
         return tcnn_top
     return inner
+
+def create_squeezenet_tcnn_top():
+    """Create the top of the tcnn with fully connected layers.
+    """
+    input_shape=(13, 13, 512)
+
+    tcnn_top = Sequential()
+    tcnn_top.add(Dropout(0.5, name='drop9', input_shape=input_shape))
+    tcnn_top.add(Convolution2D(nb_emotions, (1, 1), padding='valid', name='convLast'))
+    tcnn_top.add(Activation('relu', name='relu_convLast'))
+    tcnn_top.add(GlobalAveragePooling2D())
+    tcnn_top.add(Activation('softmax', name='loss'))
+
+    tcnn_top.compile(loss='categorical_crossentropy',
+                 optimizer=optimizers.Adam(),#lr=0.001
+                 metrics=['accuracy'])
+        
+    return tcnn_top
 
 def create_phrnn_model(features_per_lm):
     def phrnn_creator():

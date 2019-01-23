@@ -54,28 +54,34 @@ def get_frame_from_smb(smb_file_path, frame_idx):
 
 	return image
 
-def get_frame_sequence_from_smb(smb_file_path, start_frame_idx, nb_frames):
+def get_frame_sequence_from_smb(smb_file_path, nb_frames, start_frame_idx=0):
 	sequence = []
 	for i in range(nb_frames):
 		frame = get_frame_from_smb(smb_file_path, start_frame_idx+i)
 		sequence.append(frame)
 
 	sequence = np.array(sequence)
-	sequence = sequence[np.newaxis, :]
+	#sequence = sequence[np.newaxis, :]
 	return sequence
 
 
-def predict_online(smb_file_path, nb_frames_per_sample, merge_weight=0.5):
+def predict_online(frames, nb_frames_per_sample, merge_weight=0.5, show_image=True):
 	plt.figure(figsize=(3,3))
 	img = None
 
+	trim = frames.shape[0] - frames.shape[0]%nb_frames_per_sample
+	frames = frames[:trim]
+	sequences = frames.reshape((-1, 1, nb_frames_per_sample, img_size, img_size, 3))
+	print(sequences.shape)
+
+	y_preds = []
+
 	start_time = time.time()
 
-	# Go through frames sequences one by one
-	sequence_idx = 0
-	while True:
-		sequence = get_frame_sequence_from_smb(smb_file_path, sequence_idx*nb_frames_per_sample, nb_frames_per_sample)
-
+	# Go through all frames sequences one by one
+	for i, sequence in enumerate(sequences):
+		print("sequence {}/{}".format(i+1, len(sequences)), end='\r')
+		im=sequence[-1, 0]
 		im=np.multiply(sequence[-1, 0], -255).astype(np.uint8)#.copy() 
 
 		# Prepare VGG-TCNN features
@@ -98,31 +104,34 @@ def predict_online(smb_file_path, nb_frames_per_sample, merge_weight=0.5):
 		y_pred_phrnn = phrnn.predict(x_landmarks)
 		y_pred = merge_weight*y_pred_tcnn + (1-merge_weight)*y_pred_phrnn
 		emo_pred = np.argmax(y_pred)
+		y_preds.append(emo_pred)
 
 		# Display image with predicted emotion on top
-		color = (255, 0, 0)
-		cv2.putText(im, emotions[emo_pred], (2, 16), font, 0.7, color, 1, cv2.LINE_AA)
-		if img is None:
-			img = plt.imshow(im, cmap='gray')
-		else:
-			img.set_data(im)
+		if show_image:
+			color = (255, 0, 0)
+			cv2.putText(im, emotions[emo_pred], (2, 16), font, 0.7, color, 1, cv2.LINE_AA)
+			if img is None:
+				img = plt.imshow(im)
+			else:
+				img.set_data(im)
 
-		plt.pause(.01)
-		plt.draw()
+			plt.pause(.01)
+			plt.draw()
 
-		elapsed_time = time.time() - start_time
-		avg_infer_time = elapsed_time/(sequence_idx+1)
+	elapsed_time = time.time() - start_time
+	avg_time_per_predictions = elapsed_time/len(sequences)
 
-		print('Sequence {} - Average inference time : {:3f} seconds'.format(sequence_idx, avg_infer_time))
-
-		sequence_idx += 1
+	print('')
+	print('Finished online-predictions')
+	print(' Average time per prediction : {:3f} seconds'.format(avg_time_per_predictions))
 
 
 #### MAIN CODE ####
 
-sift_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/sift-phrnn1_TS4_DRIVE.h5'
+# sift_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/sift-phrnn1_TS4_DRIVE.h5'
 lm_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/landmarks-phrnn1_TS4_DRIVE.h5'
 tcnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/tcnn/tcnn1_TS4_DRIVE.h5'
+squeezenet_tcnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/tcnn/squeezenet_tcnn1_TS4_DRIVE.h5'
 
 # Prepare TCNN model
 conv1_1_weigths = get_conv_1_1_weights(vggCustom_weights_path)
@@ -136,6 +145,10 @@ phrnn.load_weights(lm_phrnn_model_path)
 
 smb_file_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/smb/TS4_DRIVE/20180824_150225.smb'
 
-# launch online prediction
-predict_online(smb_file_path, nb_frames_per_sample=5)
+# Get data and lauch online prediction
+nb_frames = 100
+frames = get_frame_sequence_from_smb(smb_file_path, nb_frames)
+print(frames.shape)
+
+predict_online(frames, nb_frames_per_sample=5)
 
