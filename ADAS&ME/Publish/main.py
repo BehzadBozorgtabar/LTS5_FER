@@ -35,6 +35,5 @@ if __name__ == '__main__':
 		tcnn_extractor = tcnn_bottom.predict
 
 
-	# model, client = init(mqttHost = "test.mosquitto.org", client_name= "JSON", port=1883)
-	client = None
+	client = init(mqttHost = "test.mosquitto.org", client_name= "JSON", port=1883)
 	prediction(tcnn_model, phrnn_model, tcnn_extractor, test_file, client, img_size=224, tcnn_type=tcnn_type, phrnn_type="landmarks") 
