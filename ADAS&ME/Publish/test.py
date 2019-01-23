@@ -1,5 +1,5 @@
 import sys, os, time, json
-# import paho.mqtt.client as mqtt
+import paho.mqtt.client as mqtt
 import numpy as np
 
 from keras.models import load_model
@@ -47,7 +47,7 @@ def init(mqttHost="localhost", client_name="JSON", port=1883):
 	client.loop_stop()
 	print("Starting main program")
 
-	return model, client
+	return client
 
 
 """
@@ -108,12 +108,12 @@ def prediction(tcnn_model, phrnn_model, tcnn_extractor, filetest, client, img_si
 			emotion = emotions[predicted_class]
 
 			print(emotion, predictions, pred_tcnn, pred_phrnn)
-			# data = { "timeStamp" : str(time_stamp), "statusCode" : 200, "type" : type_algorithm, "state" : emotion, "level" : int(predicted_class), "confidence" : "%.2f" % float(predictions[predicted_class-1]) }
-			# data_output = json.dumps(data)
+			data = { "timeStamp" : str(time_stamp), "statusCode" : 200, "type" : type_algorithm, "state" : emotion, "level" : int(predicted_class), "confidence" : "%.2f" % float(predictions[predicted_class-1]) }
+			data_output = json.dumps(data)
 
-			# client.publish(topic, data_output)
+			client.publish(topic, data_output)
 
 	finally:
 		file.close()		
-		# client.disconnect()
+		client.disconnect()
 		print("Disconnected")
