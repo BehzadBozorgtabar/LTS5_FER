@@ -20,3 +20,5 @@ nose_center_idx = 13
 
 face_predictor_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/data/shape_predictor_68_face_landmarks.dat'
 vggCustom_weights_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/customised_VGG.h5'
+squeezeNetCustom_weights_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/SqueezeNet.49-0.83.hdf5'
+
