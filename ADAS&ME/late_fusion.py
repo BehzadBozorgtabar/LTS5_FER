@@ -11,7 +11,7 @@ from keras.layers import Input, Convolution2D, ZeroPadding2D, MaxPooling2D, Flat
 from keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from keras import optimizers
 
-from training import create_tcnn_top, create_squeezenet_tcnn_top, create_phrnn_model, train_leave_one_out, leave_one_out_split, DataGenerator, CustomVerbose, get_class_weight
+from training import create_tcnn_top, create_squeezenet_tcnn_top, create_phrnn_model, train_leave_one_out, leave_one_out_split, DataGenerator, CustomVerbose
 from testing import evaluate_model, evaluate_tcnn_phrnn_model, print_model_eval_metrics
 from plot import plot_histories, plot_confusion_matrix
 from const import *
@@ -24,27 +24,20 @@ from const import *
 #### TRAINING ####
 
 # insert path of the frames & annotations
-frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data4'
+frames_data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/Real_data5'
 
 # insert path of pre-extracted features here
-data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/data'
+data_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/data/data5'
 
-
-SUBJECTS = ['S000','S004','S005','S007','S008','S011','S015','S022','S026', \
-            'TS4_DRIVE','TS7_DRIVE', \
-            'UC_B1','UC_B2','UC_B3','UC_B4', \
-            'VP03','VP18']
-
-CLASS_WEIGHT = {0: 0.5853755728232716, 1: 2.1618837380426785, 2: 1.2060755336617406}
+# Subjects to be used for training
+SUBJECTS = ['S000','S004','S007','S008','S011','S015','S022','S026', \
+            'TS4_DRIVE','TS7_DRIVE','TS10_DRIVE', \
+            'Vedecom1','Vedecom2','Vedecom3',\
+            'VP03','VP17','VP18']
 
 phrnn_features = None
 
 subjects = SUBJECTS
-
-# class_weight = get_class_weight(subjects, frames_data_path, power=1)
-# print(class_weight)
-class_weight = CLASS_WEIGHT
-#class_weight = None
 
 
 #### PHRNN ####
@@ -71,7 +64,6 @@ phrnn, hist_phrnn = train_leave_one_out(create_phrnn_model(phrnn_features_per_lm
                                        phrnn_features, 
                                        epochs, 
                                        callbacks, 
-                                       class_weight=class_weight,
                                        save_best_model=save_best_model, 
                                        model_path=phrnn_model_path)
 
@@ -92,9 +84,8 @@ early_stop = EarlyStopping(patience=40, monitor='val_loss')
 callbacks = [early_stop, custom_verbose]
 
 tcnn_model_path = 'models/late_fusion/tcnn/tcnn2.h5'
-#tcnn_model_path = 'models/late_fusion/tcnn/squeezenet_tcnn1.h5'
-tcnn_features = 'squeezenet-tcnn' #'vgg-tcnn' or 'squeezenet-tcnn'
-#pre_trained_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/ck-fer/models/tcnn/tcnn_split1.h5'
+# tcnn_model_path = 'models/late_fusion/tcnn/squeezenet_tcnn1.h5'
+tcnn_features = 'vgg-tcnn' #'vgg-tcnn' or 'squeezenet-tcnn'
 
 tcnn_top, hist_tcnn = train_leave_one_out(create_squeezenet_tcnn_top,#create_tcnn_top() or create_squeezenet_tcnn_top
                                          data_path,
@@ -103,7 +94,6 @@ tcnn_top, hist_tcnn = train_leave_one_out(create_squeezenet_tcnn_top,#create_tcn
                                          tcnn_features, 
                                          epochs, 
                                          callbacks, 
-                                         class_weight=class_weight,
                                          save_best_model=save_best_model, 
                                          model_path=tcnn_model_path)
 
@@ -115,9 +105,10 @@ plot_histories(hist_tcnn, 'TCNN Model - ADAS&ME')
 #### TESTING ####
 
 print('\nTesting model...')
-# tcnn_model_path, phrnn_model_path 
-merge_weight = 0.4
-y_pred, y_true = evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features, subjects, data_path, frames_data_path, merge_weight=merge_weight)
+merge_weight = 0.45
+
+# set tcnn_model_path to None to test only PHRNN and vice-versa
+y_pred, y_true = evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, tcnn_features, phrnn_features, subjects, data_path, frames_data_path, merge_weight=merge_weight)
 print_model_eval_metrics(y_pred, y_true)
 
 # Plot confusion matrix

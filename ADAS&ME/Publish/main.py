@@ -30,7 +30,7 @@ if __name__ == '__main__':
 		tcnn_model = load_model(squeezenet_tcnn_model_path)
 
 		# Prepare TCNN extractor
-		conv1_weights = get_conv1_weights(vggCustom_weights_path)
+		conv1_weights = get_conv1_weights(squeezeNetCustom_weights_path)
 		tcnn_bottom = create_squeezenet_tcnn_bottom(squeezeNetCustom_weights_path, conv1_weights)
 		tcnn_extractor = tcnn_bottom.predict
 

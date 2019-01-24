@@ -59,7 +59,7 @@ def evaluate_model(model_path, data_path, annotations_path, files_list, files_pe
     
     return y_pred, y_true
 
-def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features, subjects_list, data_path, frames_data_path, files_per_batch=1, nb_frames_per_sample=5, merge_weight=0.5):
+def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, tcnn_features, phrnn_features, subjects_list, data_path, frames_data_path, files_per_batch=1, nb_frames_per_sample=5, merge_weight=0.5):
     y_pred = np.array([])
     y_true = np.array([])
     
@@ -71,7 +71,7 @@ def evaluate_tcnn_phrnn_model(tcnn_model_path, phrnn_model_path, phrnn_features,
         print("Testing on {}...".format(subject))
         
         train_files_list, val_files_list = leave_one_out_split(subject, files_list)
-        tcnn_val_generator = DataGenerator(val_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features='vgg-tcnn')
+        tcnn_val_generator = DataGenerator(val_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features=tcnn_features)
         phrnn_val_generator = DataGenerator(val_files_list, data_path, frames_data_path, files_per_batch=files_per_batch, features=phrnn_features)
         
         x_tcnn, y_tcnn = tcnn_val_generator.load_all_data()

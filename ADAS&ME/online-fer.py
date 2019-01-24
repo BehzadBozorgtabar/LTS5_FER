@@ -66,6 +66,7 @@ def get_frame_sequence_from_smb(smb_file_path, nb_frames, start_frame_idx=0, img
 
 
 def predict_online(frames, model_type, nb_frames_per_sample=5, merge_weight=0.5, show_image=False):
+	print(model_type)
 	plt.figure(figsize=(3,3))
 	img = None
 
@@ -93,7 +94,7 @@ def predict_online(frames, model_type, nb_frames_per_sample=5, merge_weight=0.5,
 			y_pred_tcnn = tcnn_top.predict(vgg_tcnn_features)
 
 		if 'squeezenet-tcnn' in model_type:
-			# Prepare VGG-TCNN features
+			# Prepare SqueezeNet-TCNN features
 			squeezenet_tcnn_features = squeezenet_tcnn_bottom.predict([sequence[:,i] for i in range(nb_frames_per_sample)])
 			
 			# Compute predictions
@@ -148,31 +149,35 @@ def predict_online(frames, model_type, nb_frames_per_sample=5, merge_weight=0.5,
 
 #### MAIN CODE ####
 
-# sift_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/sift-phrnn1_TS4_DRIVE.h5'
+model_type = 'landmarks-phrnn' # 'landmarks-phrnn' or 'vgg-tcnn' or 'squeezenet-tcnn' any combination of phrnn&tcnn
+smb_file_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/smb/TS4_DRIVE/20180824_150225.smb'
+
+# Get data and lauch online prediction
+nb_frames = 500
+img_size = 227 if 'squeezenet' in model_type else 224
+frames = get_frame_sequence_from_smb(smb_file_path, nb_frames, img_size=img_size)
+
+
 lm_phrnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/phrnn/landmarks-phrnn1_TS4_DRIVE.h5'
 tcnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/tcnn/tcnn1_TS4_DRIVE.h5'
 squeezenet_tcnn_model_path = '/Users/tgyal/Documents/EPFL/MA3/Project/LTS5_FER/ADAS&ME/models/late_fusion/tcnn/squeezenet_tcnn1_TS4_DRIVE.h5'
 
-# Prepare VGG-TCNN model
-conv1_1_weigths = get_conv_1_1_weights(vggCustom_weights_path)
-tcnn_bottom = create_tcnn_bottom(vggCustom_weights_path, conv1_1_weigths)
-tcnn_top = load_model(tcnn_model_path)
+# Load required models
+if 'vgg-tcnn' in model_type:
+	# Prepare VGG-TCNN model
+	conv1_1_weigths = get_conv_1_1_weights(vggCustom_weights_path)
+	tcnn_bottom = create_tcnn_bottom(vggCustom_weights_path, conv1_1_weigths)
+	tcnn_top = load_model(tcnn_model_path)
 
-# Prepare Squeezenet-TCNN model
-conv1_weights = get_conv1_weights(vggCustom_weights_path)
-squeezenet_tcnn_bottom = create_squeezenet_tcnn_bottom(squeezeNetCustom_weights_path, conv1_weights)
-squeezenet_tcnn_top = load_model(squeezenet_tcnn_model_path)
+if 'squeezenet-tcnn' in model_type:
+	# Prepare Squeezenet-TCNN model
+	conv1_weights = get_conv1_weights(vggCustom_weights_path)
+	squeezenet_tcnn_bottom = create_squeezenet_tcnn_bottom(squeezeNetCustom_weights_path, conv1_weights)
+	squeezenet_tcnn_top = load_model(squeezenet_tcnn_model_path)
 
-# Prepare PHRNN model
-phrnn = load_model(lm_phrnn_model_path)
-
-model_type = 'squeezenet-tcnn' # 'landmarks-phrnn' or 'vgg-tcnn' or 'squeezenet-tcnn' any combination of phrnn&tcnn
-smb_file_path = '/Volumes/Ternalex/ProjectData/ADAS&ME/ADAS&ME_data/smb/TS4_DRIVE/20180824_150225.smb'
-
-# Get data and lauch online prediction
-nb_frames = 100
-img_size = 227 if 'squeezenet' in model_type else 224
-frames = get_frame_sequence_from_smb(smb_file_path, nb_frames, img_size=img_size)
+if 'phrnn' in model_type:
+	# Prepare PHRNN model
+	phrnn = load_model(lm_phrnn_model_path)
 
 predict_online(frames, model_type, nb_frames_per_sample=5)
 
