@@ -43,11 +43,11 @@ def read_smb_header(file):
 	file.seek(12)
 	image_width = bytearray(file.read(4))
 	image_width.reverse()
-	image_width = int.from_bytes(image_width, byteorder='big')
-	
+	image_width = int(str(image_width).encode('hex'), 16)
+
 	image_height = bytearray(file.read(4))
 	image_height.reverse()
-	image_height = int.from_bytes(image_height, byteorder='big')
+	image_height = int(str(image_height).encode('hex'), 16)
 
 	return image_width, image_height
 
@@ -56,36 +56,37 @@ def read_roi_data(file):
 	"""
 	camera_index = bytearray(file.read(4))
 	camera_index.reverse()
-	camera_index = int.from_bytes(camera_index, byteorder='big')
+	camera_index = int(str(camera_index).encode('hex'), 16)
 
 	frame_number = bytearray(file.read(8))
 	frame_number.reverse()
-	frame_number = int.from_bytes(frame_number, byteorder='big')
+	frame_number = int(str(frame_number).encode('hex'), 16)
 
 	time_stamp = bytearray(file.read(8))
 	time_stamp.reverse()
-	time_stamp = int.from_bytes(time_stamp, byteorder='big')
+	time_stamp = int(str(time_stamp).encode('hex'), 16)
 
 	roi_left = bytearray(file.read(4))
 	roi_left.reverse()
-	roi_left = int.from_bytes(roi_left, byteorder='big')
+	roi_left = int(str(roi_left).encode('hex'), 16)
 
 	roi_top = bytearray(file.read(4))
 	roi_top.reverse()
-	roi_top = int.from_bytes(roi_top, byteorder='big')
+	roi_top = int(str(roi_top).encode('hex'), 16)
 
 	roi_width = bytearray(file.read(4))
 	roi_width.reverse()
-	roi_width = int.from_bytes(roi_width, byteorder='big')
+	roi_width = int(str(roi_width).encode('hex'), 16)
 
 	roi_height = bytearray(file.read(4))
 	roi_height.reverse()
-	roi_height = int.from_bytes(roi_height, byteorder='big')
+	roi_height = int(str(roi_height).encode('hex'), 16)
 
 	camera_angle = bytearray(file.read(8))
 	camera_angle = struct.unpack('d', camera_angle)[0]
 
 	return camera_index, frame_number, time_stamp, roi_left, roi_top, roi_width, roi_height, camera_angle
+
 
 
 def read_image(file, current_position, roi_left, roi_top, roi_width, roi_height, image_width):
@@ -136,7 +137,8 @@ def extract_all_face_landmarks(x_data, verbose=True):
 	face_landmarks = []
 
 	for i, frame in enumerate(x_int):
-		if verbose: print("Computing facial landmarks... {:.1f}%".format(100.*(i+1)/x_int.shape[0]), end='\r')
+		if verbose: 
+			print("Computing facial landmarks... {:.1f}%".format(100.*(i+1)/x_int.shape[0]), '\r')
 		if len(frame.shape)==2:
 			gray=frame
 		else:

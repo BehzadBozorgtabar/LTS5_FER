@@ -5,9 +5,9 @@ nb_channels = 3
 SMB_HEADER_SIZE = 20
 emotions = {1: "Neutral", 2: "Positive", 3: "Negative"}
 
-face_predictor_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/data/shape_predictor_68_face_landmarks.dat'
-vggCustom_weights_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/customised_VGG.h5'
-squeezeNetCustom_weights_path = '/Users/tgyal/Documents/EPFL/MA3/Project/fer-project/models/SqueezeNet.49-0.83.hdf5'
+face_predictor_path = 'data/shape_predictor_68_face_landmarks.dat'
+vggCustom_weights_path = 'data/customised_VGG.h5'
+squeezeNetCustom_weights_path = 'data/SqueezeNet.49-0.83.hdf5'
 
 
 # Define the masks corresponding to each cluster of landmarks

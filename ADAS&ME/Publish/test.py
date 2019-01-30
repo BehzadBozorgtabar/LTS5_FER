@@ -82,7 +82,6 @@ def prediction(tcnn_model, phrnn_model, tcnn_extractor, filetest, client, img_si
 				# Read image
 				file.seek(current_position + SMB_HEADER_SIZE)
 				image = read_image(file, current_position, roi_left, roi_top, roi_width, roi_height, image_width)
-				# image = image / 255.
 
 				# Resize image to fit with the input of the model
 				image = imresize(image, (img_size, img_size))
@@ -103,12 +102,12 @@ def prediction(tcnn_model, phrnn_model, tcnn_extractor, filetest, client, img_si
 			pred_phrnn = phrnn_model.predict(landmarks)
 
 			# Merging TCNN and PHRNN predictions
-			predictions = merge_weight*pred_tcnn + (1-merge_weight)*pred_phrnn
+			predictions = (merge_weight*pred_tcnn + (1-merge_weight)*pred_phrnn)[0]
 			predicted_class = np.argmax(predictions) + 1
 			emotion = emotions[predicted_class]
 
-			print(emotion, predictions, pred_tcnn, pred_phrnn)
 			data = { "timeStamp" : str(time_stamp), "statusCode" : 200, "type" : type_algorithm, "state" : emotion, "level" : int(predicted_class), "confidence" : "%.2f" % float(predictions[predicted_class-1]) }
+			print(data)
 			data_output = json.dumps(data)
 
 			client.publish(topic, data_output)
