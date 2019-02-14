@@ -19,6 +19,6 @@ Please follow the instructions below to use the scripts. The script you need to 
 
 	-	line 20: specify the height of the image you want to read
 
-	-	line 22: beside mqttHost, type the hostname or the ip address of the mqtt broker for the publication step. Also, specify a clent name and the port number.
+	-	line 22: beside mqttHost, type the hostname or the ip address of the mqtt broker for the publication step. Also, specify a client name and the port number.
 
-	-	line 23: specify the name of the topic you want to publish on
+	-	line 23: specify the name of the topic on which you want to publish the predictions to the mqtt broker 
