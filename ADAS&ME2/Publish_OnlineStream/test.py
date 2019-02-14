@@ -19,7 +19,7 @@ def get_session(gpu_fraction=0.333):
 
 # Some constant values
 nb_channels = 3
-emotions = {1: "Neutral", 2: "Positive", 3: "Frustrated", 4: "Anxiety"}
+emotions = {1: "Neutral", 2: "Positive", 3: "Frustrated", 4: "Anxiety"} #Emotions you want to predict, modify it to fit the ouput of the model used
 
 """
 Prints the Roi Header
@@ -69,6 +69,11 @@ def on_connect(client, userdata, flags, rc):
 
 """
 Init function, returns the model and the client connected to the MQTT broker
+
+model_path: the path of the model used for prediction
+mqttHost: the host name or the ip address of the mqtt broker used for publication
+client_name: the name of the client to make the connection with the mqtt broker
+port: the port used for the tcp connection with the broker
 """
 def init(model_path, mqttHost="localhost", client_name="JSON", port=1883):
 
@@ -97,6 +102,15 @@ def init(model_path, mqttHost="localhost", client_name="JSON", port=1883):
 Makes a TCP connection with a Smart Eye camera
 Makes the predictions in streaming
 Publishes the predictions to the MQTT broker
+
+model: the model used for prediction
+output_client: the client connected to the mqtt broker used to publish the prediction to the core pc
+input_host: the ip address of the smart eye camera
+width: the width of the image input
+height: the height of the image input
+img_size: the size of the images to fit the input of the model
+type_algorithm: the algorithm used
+topic: the topic on which we want to publish the predictions to the MQTT broker
 """
 def prediction(model, output_client, input_host, input_port, width, height, img_size=224, type_algorithm="VGG_FACE", topic='emotion'):
 
@@ -107,10 +121,12 @@ def prediction(model, output_client, input_host, input_port, width, height, img_
 		TCPStreamReader.initTcpStream(input_host, input_port, width, heigth)
 
 		while True:
-			img = TCPStreamReader.getImage(width, height);
+			img = TCPStreamReader.getImage(width, height) #Read the image on streaming
 			if(img is not None):
+				#Read the Roi Data
 				camera_index, frame_number, time_stamp, roi_left, roi_top, roi_width, roi_height, camera_angle = read_roi_data(img)
 
+				#Transform the image read on stream to a numpy array
 				buf = (ctypes.c_uint8*(width*height)).from_address(int(img))
 				frame = np.frombuffer(buf, dtype=np.uint8).reshape(height, width)
 
@@ -129,6 +145,7 @@ def prediction(model, output_client, input_host, input_port, width, height, img_
 
 				data_output = json.dumps(data)
 
+				# Publication of the JSON object
 				output_client.publish(topic, data_output)
 			else:
 				TCPStreamReader.free_roiData(img)
