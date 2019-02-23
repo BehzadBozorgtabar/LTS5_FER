@@ -2,10 +2,6 @@ import struct
 import numpy as np
 import os
 
-from imageio import imread, imwrite
-from scipy.misc import imresize
-import cv2
-
 
 def get_face_square(left, top, width, height, scale_factor):
 	"""Returns the square around the face that should be used to crop the image.
