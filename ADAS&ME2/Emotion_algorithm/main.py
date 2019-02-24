@@ -49,7 +49,13 @@ workers = 4
 
 if train:
 	drivers_test = os.listdir(real_data_path)
-	histories = train_leave_one_out(drivers_test, img_size, epochs, workers, batch_size=32, save_path=save_path)
+	to_fine_tune = None
+
+	if nbr_args == 5:
+		to_fine_tune = sys.argv[3]
+		drivers_test = sys.argv[4]
+
+	histories = train_leave_one_out(drivers_test, img_size, epochs, workers, batch_size=32, save_path=save_path, to_fine_tune=to_fine_tune)
 	with open(results_path + "histories.pkl", 'wb') as pklfile:
 		pkl.dump(histories, pklfile)
 else:

@@ -4,6 +4,7 @@ import numpy as np
 from multiprocessing import cpu_count
 
 from keras.utils import Sequence, to_categorical
+from keras.models import load_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import ModelCheckpoint
 from sklearn.utils import shuffle
@@ -28,7 +29,7 @@ def classWeight(labels):
 	return class_weight
 
 
-def train_leave_one_out(drivers, img_size, epochs, workers, batch_size, save_path, images_directory="data/Images/"):
+def train_leave_one_out(drivers, img_size, epochs, workers, batch_size, save_path, to_fine_tune=None, images_directory="data/Images/"):
 	histories = []
 	test_directory = images_directory + 'test/'
 	train_directory = images_directory + 'train/'
@@ -43,17 +44,22 @@ def train_leave_one_out(drivers, img_size, epochs, workers, batch_size, save_pat
 		if not driver in no_test_data:
 			print("Driver test : " + driver)
 			i += 1
-
+				
 			model_name = "model_" + driver 
 
 			save_model_path = save_path + model_name + '.{epoch:02d}-{val_loss:.2f}.hdf5'
 
-			if 'VGG' in save_path:
-				model = create_vgg_model(get_model_custom('fc6', custom_vgg_weights_path))
-			elif 'ResNet' in save_path:
-				model = create_resnet_model(get_model_custom('avg_pool', custom_resnet_weights_path))
-			elif 'SqueezeNet' in save_path:
-				model = create_squeezenet_model(get_model_custom('fire9/concat', custom_squeezeNet_weights_path))
+
+			if to_fine_tune is not None:
+				model = load_model(to_fine_tune)
+
+			else:
+				if 'VGG' in save_path:
+					model = create_vgg_model(get_model_custom('fc6', custom_vgg_weights_path))
+				elif 'ResNet' in save_path:
+					model = create_resnet_model(get_model_custom('avg_pool', custom_resnet_weights_path))
+				elif 'SqueezeNet' in save_path:
+					model = create_squeezenet_model(get_model_custom('fire9/concat', custom_squeezeNet_weights_path))
 
 			model.compile(optimizer=sgd, loss='categorical_crossentropy',metrics=['accuracy'])
 
